@@ -1,0 +1,28 @@
+{
+  "name": "memoriaflash-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FlashMind Content Agent — serviço autônomo de manutenção do banco educacional (currículo, flashcards, aprendizado por feedback). Roda separado do app FlashMind.",
+  "type": "commonjs",
+  "scripts": {
+    "build": "esbuild src/server/contentAgent/run.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/content-agent.cjs",
+    "start": "node dist/content-agent.cjs",
+    "dev": "tsx src/server/contentAgent/run.ts",
+    "rollback": "tsx src/server/contentAgent/rollback.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@google/genai": "^2.4.0",
+    "dotenv": "^17.2.3",
+    "firebase-admin": "^13.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.2",
+    "typescript": "~5.8.2",
+    "vitest": "^4.1.10"
+  }
+}
