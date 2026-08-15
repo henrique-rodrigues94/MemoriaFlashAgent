@@ -1,20 +1,22 @@
-// 📁 flashmind-ai/src/server/ai/providers/gemini.ts
+// 📁 MemoriaFlashAgent/src/server/ai/providers/gemini.ts
 //
 // Google Gemini — PROVEDOR PRINCIPAL
-// Camada gratuita generosa via Google AI Studio (GEMINI_API_KEY).
+// Usa a mesma configuração validada no aplicativo MemoriaFlash.
 // Suporta structured output nativo (responseSchema) → JSON garantido.
 //
 // Variáveis de ambiente:
-//   GEMINI_API_KEY          obrigatória
-//   GEMINI_MODEL            opcional (padrão: gemini-2.5-flash)
-//   GEMINI_MAX_OUTPUT_TOKENS opcional (padrão: 8192)
+//   GEMINI_API_KEY           obrigatória
+//   GEMINI_MODEL             opcional (padrão: gemini-flash-latest)
+//   GEMINI_MAX_OUTPUT_TOKENS opcional (padrão: 32768)
 
 import { GoogleGenAI } from '@google/genai';
 import { AIProvider, AIProviderError, GenerateJSONParams } from '../types';
 
-// gemini-2.5-flash: melhor custo-benefício, contexto 1M tokens, saída 65k tokens
-const DEFAULT_MODEL      = 'gemini-2.5-flash';
-const DEFAULT_MAX_TOKENS = 8192;
+// O MemoriaFlash já funciona com este alias; manter o Agent alinhado evita
+// que uma execução use um modelo diferente quando GEMINI_MODEL não estiver
+// definido como secret no GitHub Actions.
+const DEFAULT_MODEL      = 'gemini-flash-latest';
+const DEFAULT_MAX_TOKENS = 32768;
 
 let _client: GoogleGenAI | null = null;
 
@@ -28,7 +30,8 @@ function getClient(): GoogleGenAI {
 }
 
 function getModel(): string {
-  return process.env.GEMINI_MODEL || DEFAULT_MODEL;
+  const configured = process.env.GEMINI_MODEL?.trim();
+  return configured || DEFAULT_MODEL;
 }
 
 function getMaxTokens(params: GenerateJSONParams): number {
