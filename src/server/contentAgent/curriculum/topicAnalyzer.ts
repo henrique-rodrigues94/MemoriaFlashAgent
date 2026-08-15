@@ -1,13 +1,11 @@
-// 📁 flashmind-ai/src/server/contentAgent/curriculum/topicAnalyzer.ts
-//
-// Decide, para cada tópico de um currículo já existente, se ele precisa de
-// geração de cards — e com qual prioridade. Reaproveita getBucketStats/
-// getCurriculum de src/server/db/db.ts (nenhuma leitura direta ao Firestore
-// aqui).
+// Decide quais folhas da grade curricular precisam de cards.
+// A unidade real de geração agora é o SUBTÓPICO; currículos antigos continuam
+// funcionando porque o adaptador trata o próprio tópico como folha.
 
 import { getCurriculum, getBucketStats } from '../../db/db';
 import type { EducationLevel, CardContentType } from '../../db/firestoreSchema';
 import { agentConfig } from '../config/agentConfig';
+import { flattenCurriculum } from './curriculumHierarchy';
 
 export type PlanPriority = 'P2_NO_CONTENT' | 'P3_BELOW_MINIMUM' | 'P7_EXPANSION';
 
@@ -15,60 +13,54 @@ export interface TopicNeed {
   subject: string;
   level: EducationLevel;
   cardType: CardContentType;
-  topic: string;
+  topic: string; // folha usada como chave do bucket e como topic do card
+  parentTopic?: string;
   category: string;
   currentCount: number;
   stale: boolean;
-  shortfall: number; // quantos cards gerar agora
+  shortfall: number;
   priority: PlanPriority;
 }
 
 function priorityFor(currentCount: number): { priority: PlanPriority; target: number } {
   const { minimumCards, targetCards, maximumCards } = agentConfig.cardTargets;
-
   if (currentCount <= 0) return { priority: 'P2_NO_CONTENT', target: minimumCards };
   if (currentCount < minimumCards) return { priority: 'P3_BELOW_MINIMUM', target: minimumCards };
   if (currentCount < targetCards) return { priority: 'P7_EXPANSION', target: targetCards };
-  // Entre target e maximum: não expande automaticamente (regra da Seção 7);
-  // isso só mudaria com sinal do Learning Engine (Etapa 7, ainda não conectado).
   return { priority: 'P7_EXPANSION', target: Math.min(currentCount, maximumCards) };
 }
 
-/**
- * Retorna as necessidades de conteúdo de subject+level para os tipos de
- * card ativos, ordenadas por prioridade (conteúdo ausente primeiro).
- * Não chama IA — apenas leitura do banco (barato).
- */
 export async function analyzeSubjectLevel(
   subject: string,
   level: EducationLevel,
 ): Promise<TopicNeed[]> {
   const curriculumResult = await getCurriculum(subject, level);
-  if (!curriculumResult) return []; // currículo ainda não existe — o Planner cuida disso antes
+  if (!curriculumResult) return [];
 
-  const { categories } = curriculumResult.data;
+  const leaves = flattenCurriculum(curriculumResult.data);
   const needs: TopicNeed[] = [];
 
-  for (const cat of categories) {
-    for (const cardType of agentConfig.activeCardTypes) {
-      const stats = await getBucketStats(subject, cat.topics, level, cardType);
-      for (const stat of stats) {
-        const { priority, target } = priorityFor(stat.cardCount);
-        const shortfall = Math.max(0, target - stat.cardCount);
-        if (shortfall <= 0 && !stat.stale) continue;
+  // Um read por folha e por tipo, em paralelo dentro de cada tipo.
+  for (const cardType of agentConfig.activeCardTypes) {
+    const stats = await getBucketStats(subject, leaves.map(leaf => leaf.subtopic), level, cardType);
+    for (const stat of stats) {
+      const leaf = leaves.find(item => item.subtopic === stat.topic);
+      const { priority, target } = priorityFor(stat.cardCount);
+      const shortfall = Math.max(0, target - stat.cardCount);
+      if (shortfall <= 0 && !stat.stale) continue;
 
-        needs.push({
-          subject,
-          level,
-          cardType,
-          topic: stat.topic,
-          category: cat.category,
-          currentCount: stat.cardCount,
-          stale: stat.stale,
-          shortfall: stat.stale && shortfall === 0 ? agentConfig.limits.batchSize : shortfall,
-          priority,
-        });
-      }
+      needs.push({
+        subject,
+        level,
+        cardType,
+        topic: stat.topic,
+        parentTopic: leaf?.topic,
+        category: leaf?.category ?? '',
+        currentCount: stat.cardCount,
+        stale: stat.stale,
+        shortfall: stat.stale && shortfall === 0 ? agentConfig.limits.batchSize : shortfall,
+        priority,
+      });
     }
   }
 
