@@ -101,6 +101,9 @@ export async function generateForTopicNeed(
       tracker.aiCalls++;
 
       const generatedThisBatch = result.aiGenerated ?? 0;
+      const bankHitsThisBatch = result.bankHits ?? 0;
+      const progressThisBatch = Math.min(batchCount, generatedThisBatch + bankHitsThisBatch);
+
       cardsGenerated += generatedThisBatch;
       tracker.cardsGenerated += generatedThisBatch;
 
@@ -108,14 +111,15 @@ export async function generateForTopicNeed(
         action: '[cards] lote gerado',
         subject: need.subject,
         topic: need.topic,
-        detail: `${need.cardType}/${need.level}: +${generatedThisBatch} via IA, ${result.bankHits} do banco (provider: ${result.providerUsed})`,
+        detail: `${need.cardType}/${need.level}: +${generatedThisBatch} via IA, ${bankHitsThisBatch} do banco (provider: ${result.providerUsed})`,
       });
 
-      // O shortfall é reduzido pelo que realmente foi gerado. Assim, se a
-      // IA/de-duplicação devolver menos que o solicitado, o agente não marca
-      // falsamente o tópico como completo.
-      remaining -= generatedThisBatch;
-      if (generatedThisBatch <= 0) {
+      // O shortfall representa cards que faltam no banco. Portanto, o
+      // progresso inclui tanto cards recuperados do bucket quanto cards novos
+      // gerados pela IA. Não podemos subtrair apenas aiGenerated, senão um
+      // lote parcialmente atendido pelo banco provocaria geração duplicada.
+      remaining -= progressThisBatch;
+      if (progressThisBatch <= 0) {
         tracker.errors++;
         tracker.log({
           action: '[cards] lote sem geração',
