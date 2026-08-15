@@ -97,6 +97,6 @@ Quando todas as folhas relevantes atingirem o objetivo de cards, o pedido vira `
 
 ## 6. Execução automática
 
-O workflow do agente foi configurado para verificar novos pedidos a cada 15 minutos, além de permitir execução manual.
+O workflow verifica novos pedidos a cada 15 minutos, além de permitir execução manual. O CI também executa `typecheck`, testes e build a cada push.
 
 Para produção com resposta realmente imediata, a arquitetura recomendada é executar o agente como serviço Cloud Run e fazer o backend do FlashMind chamar a fila/API diretamente. O Firestore continua sendo a fonte compartilhada e o mecanismo de retomada.
