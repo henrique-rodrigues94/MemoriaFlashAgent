@@ -1,21 +1,8 @@
-// 📁 flashmind-ai/src/server/contentAgent/agent/orchestrator.ts
+// Ponto de entrada único do FlashMind Content Agent.
 //
-// Ponto de entrada único do FlashMind Content Agent. Roda o ciclo completo
-// da Seção 37 do briefing:
-//
-//   RECEBER FEEDBACK → ANALISAR → APRENDER   (jobs/analyzeFeedbackJob)
-//     → REVISAR                              (jobs/reviewFlaggedTopicsJob — CardUpdater)
-//     → DESCOBRIR → ORGANIZAR                (jobs/discoverTopicsJob → planner)
-//     → GERAR → VALIDAR → PUBLICAR           (jobs/generateCardsJob → generateFlashcardsTask)
-//     → REGISTRAR                            (agentRuns)
-//
-// O CardUpdater (Seção 20) remove os cards individuais mais mal avaliados
-// de tópicos já flagados pelo Learning Engine; o shortfall que isso cria é
-// preenchido no MESMO run pelo passo GERAR logo em seguida — não existe uma
-// rota separada de "edição de card", é sempre remover + deixar o pipeline
-// normal repor. Não há ainda versionamento completo de histórico (só
-// `reviewVersion`/`qualityScore`/`lastReviewedAt` no doc do balde) nem
-// rollback. Ver docs/content-agent.md, seção "Roadmap".
+// Ciclo:
+// PEDIDOS DOS USUÁRIOS → FEEDBACK → REVISÃO → DESCOBRIR/ORGANIZAR →
+// GERAR/VALIDAR/PUBLICAR → REGISTRAR.
 
 import { agentConfig } from '../config/agentConfig';
 import { RunTracker, persistRunSummary, AgentRunSummary } from '../monitoring/runLogger';
@@ -23,6 +10,7 @@ import { discoverTopicsJob } from '../jobs/discoverTopicsJob';
 import { generateCardsJob } from '../jobs/generateCardsJob';
 import { analyzeFeedbackJob } from '../jobs/analyzeFeedbackJob';
 import { reviewFlaggedTopicsJob } from '../jobs/reviewFlaggedTopicsJob';
+import { processContentRequestsJob } from '../requests/contentRequestJob';
 
 export async function runContentAgent(): Promise<AgentRunSummary> {
   if (!agentConfig.enabled) {
@@ -37,6 +25,10 @@ export async function runContentAgent(): Promise<AgentRunSummary> {
   tracker.log({ action: '[agent] iniciando execução', detail: tracker.runId });
 
   try {
+    // Pedido explícito de usuário tem prioridade sobre manutenção automática.
+    tracker.log({ action: '[agent] processando pedidos de novas matérias/assuntos' });
+    await processContentRequestsJob(tracker);
+
     tracker.log({ action: '[agent] analisando feedback recente' });
     await analyzeFeedbackJob(tracker);
 
@@ -49,11 +41,11 @@ export async function runContentAgent(): Promise<AgentRunSummary> {
 
     tracker.log({
       action: '[planner] plano pronto',
-      detail: `${plan.needs.length} tópico(s) precisam de conteúdo (${plan.curriculaCreated} currículo(s) novos)`,
+      detail: `${plan.needs.length} folha(s) precisam de conteúdo (${plan.curriculaCreated} currículo(s) novos)`,
     });
 
     if (plan.needs.length === 0) {
-      tracker.log({ action: '[agent] nada a fazer neste ciclo' });
+      tracker.log({ action: '[agent] nada a fazer neste ciclo automático' });
     } else {
       await generateCardsJob(plan, tracker);
     }
@@ -62,7 +54,7 @@ export async function runContentAgent(): Promise<AgentRunSummary> {
     await persistRunSummary(summary);
     tracker.log({
       action: '[agent] execução concluída',
-      detail: `${summary.cardsGenerated} cards gerados, ${summary.cardsReviewed} removidos por revisão, ${summary.topicsProcessed} tópicos, ${summary.feedbackAnalyzed} feedbacks analisados, ${summary.adaptationsApplied} adaptações, ${summary.aiCalls} chamadas de IA, ${summary.errors} erro(s)`,
+      detail: `${summary.cardsGenerated} cards gerados, ${summary.cardsReviewed} removidos, ${summary.topicsProcessed} folhas, ${summary.feedbackAnalyzed} feedbacks, ${summary.adaptationsApplied} adaptações, ${summary.aiCalls} chamadas de IA, ${summary.errors} erro(s)`,
     });
     return summary;
   } catch (err: any) {
