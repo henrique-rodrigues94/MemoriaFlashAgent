@@ -19,6 +19,23 @@ const LEVEL_RULES: Record<EducationLevel, string> = {
   concurso: 'Foco em concursos brasileiros; priorize edital, lei seca, jurisprudência consolidada, conceitos cobrados e pegadinhas de banca.',
 };
 
+function concursoContext(subject: string): string {
+  const s = subject.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/perito|criminalistica|pericia/.test(s)) {
+    return 'Se for Perito/Criminalística, considere criminalística geral, local de crime, cadeia de custódia, documentoscopia, balística, toxicologia, medicina legal, informática forense, química/biologia forense, legislação e laudo pericial, ajustando ao cargo informado.';
+  }
+  if (/delegado|agente|escrivao|investigador/.test(s)) {
+    return 'Se for carreira policial, considere Direito Penal, Processo Penal, Constitucional, Administrativo, legislação especial, direitos humanos, criminalística e demais matérias recorrentes do cargo.';
+  }
+  if (/auditor|fiscal|receita|tribut/.test(s)) {
+    return 'Se for área fiscal, considere Direito Tributário, legislação tributária, contabilidade, auditoria, administração pública e TI quando pertinente ao cargo.';
+  }
+  if (/judici|tribunal|trf|trt|tre|stj|stf|tjsp/.test(s)) {
+    return 'Se for área judiciária, considere Constitucional, Administrativo, Processo Civil/Penal, legislação/regimento e Português/Raciocínio quando pertinentes ao cargo.';
+  }
+  return `Use como referência os conteúdos efetivamente cobrados em editais recentes da área "${subject}" e não invente disciplinas específicas sem relação com o cargo.`;
+}
+
 function normalizeText(text: string): string {
   return (text || '').trim().replace(/\s+/g, ' ');
 }
@@ -38,11 +55,9 @@ function normalizeCategories(raw: any): CurriculumCategory[] {
   for (const item of Array.isArray(raw?.categories) ? raw.categories : []) {
     const category = normalizeText(item?.category);
     if (!category) continue;
-
     const topics: string[] = [];
     const subtopics: Record<string, string[]> = {};
 
-    // Formato novo: topics=[{topic,subtopics:[...]}]
     if (Array.isArray(item?.topics)) {
       for (const rawTopic of item.topics) {
         if (typeof rawTopic === 'string') {
@@ -63,7 +78,6 @@ function normalizeCategories(raw: any): CurriculumCategory[] {
       }
     }
 
-    // Formato alternativo: subtopics é um mapa e topics são strings.
     if (item?.subtopics && typeof item.subtopics === 'object') {
       for (const topic of topics) {
         const leaves = Array.isArray(item.subtopics[topic])
@@ -121,36 +135,27 @@ function schema() {
   };
 }
 
-/**
- * Gera uma grade curricular em três níveis:
- * matéria/assunto → categoria → tópico → subtópico.
- * O documento continua compatível com o app antigo porque `topics` permanece
- * como array de strings e o mapa `subtopics` é adicionado ao lado.
- */
 export async function generateCurriculumHierarchyTask(args: {
   subject: string;
   educationLevel: EducationLevel;
   language?: string;
 }): Promise<{ categories: CurriculumCategory[]; providerUsed: string; cacheHit?: boolean; enriched?: boolean }> {
-  const { subject, educationLevel, language = 'pt' } = args;
+  const { subject, educationLevel } = args;
   const cached = await getCurriculum(subject, educationLevel);
 
   if (cached && hasRealSubtopics(cached.data)) {
-    return {
-      categories: toHierarchy(cached.data).categories,
-      providerUsed: 'db-cache',
-      cacheHit: true,
-    };
+    return { categories: toHierarchy(cached.data).categories, providerUsed: 'db-cache', cacheHit: true };
   }
 
   const oldTopics = cached
     ? toHierarchy(cached.data).categories.flatMap(category => category.topics.map(topic => `${category.category} → ${topic}`))
     : [];
+  const contestHint = educationLevel === 'concurso' ? `\nCONTEXTO DE CONCURSO: ${concursoContext(subject)}` : '';
 
   const systemPrompt = `Você é o arquiteto curricular do MemoriaFlash.
 Crie uma grade de estudo completa, coerente e progressiva para a matéria/assunto informado.
 
-NÍVEL: ${LEVEL_RULES[educationLevel]}
+NÍVEL: ${LEVEL_RULES[educationLevel]}${contestHint}
 
 HIERARQUIA OBRIGATÓRIA:
 1. Categoria = grande área da matéria.
@@ -160,20 +165,18 @@ HIERARQUIA OBRIGATÓRIA:
 REGRAS:
 - Gere 4–12 categorias.
 - Gere 3–10 tópicos por categoria.
-- Gere 3–8 subtópicos REAIS por tópico.
+- Gere 3–8 subtópicos reais por tópico.
 - Cubra do fundamento ao conteúdo avançado adequado ao nível.
 - Evite "outros", "revisão geral", "introdução" e nomes vagos.
 - Não duplique tópicos ou subtópicos.
 - Não invente leis, normas, autores, datas ou conteúdos que não façam sentido para a matéria.
 - Para concurso, organize como um edital de alto nível e priorize conteúdo efetivamente cobrado.
-- A grade deve servir como mapa mestre para depois gerar flashcards automaticamente.
+- A grade será usada como mapa mestre para gerar flashcards automaticamente.
 - Responda somente JSON.`;
 
   const userPrompt = `Matéria/assunto: "${subject}"
 Nível: "${educationLevel}"
-${oldTopics.length > 0 ? `
-Existe uma grade antiga que precisa ser enriquecida. Preserve os tópicos válidos e transforme cada um em uma unidade com subtópicos:
-${oldTopics.slice(0, 80).join('\n')}` : ''}
+${oldTopics.length > 0 ? `\nExiste uma grade antiga que precisa ser enriquecida. Preserve os tópicos válidos e transforme cada um em uma unidade com subtópicos:\n${oldTopics.slice(0, 80).join('\n')}` : ''}
 
 Retorne:
 {
@@ -201,15 +204,6 @@ Retorne:
   const categories = normalizeCategories(data);
   if (categories.length === 0) throw new Error(`IA não retornou uma grade curricular válida para "${subject}".`);
 
-  // Mantém `topics: string[]` para compatibilidade e adiciona `subtopics` como
-  // campo extra no mesmo documento. O Firestore aceita mapas/arrays inline;
-  // a grade é pequena o suficiente para permanecer muito abaixo do limite.
   await saveCurriculum(subject, educationLevel, categories as any, providerUsed);
-
-  return {
-    categories,
-    providerUsed,
-    cacheHit: false,
-    enriched: Boolean(cached),
-  };
+  return { categories, providerUsed, cacheHit: false, enriched: Boolean(cached) };
 }
