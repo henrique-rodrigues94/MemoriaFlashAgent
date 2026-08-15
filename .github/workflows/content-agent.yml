@@ -1,8 +1,11 @@
 name: content-agent
 
 on:
+  # Ciclo curto para atender matérias/assuntos digitados pelos usuários.
+  # GitHub Actions aceita intervalos mínimos de 5 minutos; 15 min reduz
+  # custo/ruído e mantém o conteúdo em processamento quase em tempo real.
   schedule:
-    - cron: '0 6 * * 0' # todo domingo, 03:00 America/Campo_Grande (UTC-3)
+    - cron: '7,22,37,52 * * * *'
   workflow_dispatch: {}
 
 concurrency:
@@ -22,7 +25,6 @@ jobs:
           cache: npm
 
       - run: npm ci
-
       - run: npm run build
 
       - run: node dist/content-agent.cjs
@@ -51,3 +53,5 @@ jobs:
           CONTENT_AGENT_MAX_CARDS_REVIEWED: ${{ secrets.CONTENT_AGENT_MAX_CARDS_REVIEWED }}
           CONTENT_AGENT_CARD_MIN_FEEDBACK: ${{ secrets.CONTENT_AGENT_CARD_MIN_FEEDBACK }}
           CONTENT_AGENT_CARD_MIN_NEGATIVE_RATE: ${{ secrets.CONTENT_AGENT_CARD_MIN_NEGATIVE_RATE }}
+          CONTENT_AGENT_MAX_REQUESTS: ${{ secrets.CONTENT_AGENT_MAX_REQUESTS }}
+          CONTENT_AGENT_MAX_REQUEST_TOPICS: ${{ secrets.CONTENT_AGENT_MAX_REQUEST_TOPICS }}
