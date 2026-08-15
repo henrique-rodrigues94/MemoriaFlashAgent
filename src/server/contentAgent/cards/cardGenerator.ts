@@ -75,7 +75,15 @@ export async function generateForTopicNeed(
       break;
     }
 
-    const batchCount = Math.min(remaining, batchSize);
+    // O lote nunca pode ultrapassar o orçamento restante da execução.
+    // Ex.: com 495/500 cards, o lote máximo passa a ser 5, não 20.
+    const remainingCardBudget = Math.max(0, maxCardsPerRun - tracker.cardsGenerated);
+    const batchCount = Math.min(remaining, batchSize, remainingCardBudget);
+    if (batchCount <= 0) {
+      stoppedByLimits = true;
+      tracker.stoppedReason = 'maxCardsPerRun atingido';
+      break;
+    }
 
     try {
       const result = await generateFlashcardsTask({
@@ -103,7 +111,20 @@ export async function generateForTopicNeed(
         detail: `${need.cardType}/${need.level}: +${generatedThisBatch} via IA, ${result.bankHits} do banco (provider: ${result.providerUsed})`,
       });
 
-      remaining -= batchCount;
+      // O shortfall é reduzido pelo que realmente foi gerado. Assim, se a
+      // IA/de-duplicação devolver menos que o solicitado, o agente não marca
+      // falsamente o tópico como completo.
+      remaining -= generatedThisBatch;
+      if (generatedThisBatch <= 0) {
+        tracker.errors++;
+        tracker.log({
+          action: '[cards] lote sem geração',
+          subject: need.subject,
+          topic: need.topic,
+          detail: `A IA/banco não devolveu cards para um lote de ${batchCount}.`,
+        });
+        break;
+      }
     } catch (err: any) {
       tracker.errors++;
       tracker.log({
