@@ -1,7 +1,7 @@
 import { getAdminFirestore } from '../../firebaseAdmin';
 import { identifySubjectLevelsTask } from '../../ai/tasks/identifySubjectLevels';
 import { generateCurriculumTask } from '../../ai/tasks/generateCurriculum';
-import { analyzeSubjectLevel, TopicNeed } from '../curriculum/topicAnalyzer';
+import { analyzeSubjectLevel } from '../curriculum/topicAnalyzer';
 import { generateForTopicNeed } from '../cards/cardGenerator';
 import { agentConfig } from '../config/agentConfig';
 import { RunTracker } from '../monitoring/runLogger';
@@ -27,22 +27,27 @@ export interface ContentRequestDoc {
 
 /**
  * Processa pedidos originados no app.
- * Contrato para o backend do FlashMind: criar contentRequests/{id} com
+ * Contrato: criar contentRequests/{id} com
  * { subject, educationLevel?, status:'pending', requestedAt, updatedAt }.
- * Nenhum dado pessoal é necessário para o agente.
  */
 export async function processContentRequestsJob(tracker: RunTracker): Promise<void> {
   const db = getAdminFirestore();
   if (!db) return;
 
-  const maxRequests = agentConfig.limits.maxContentRequestsPerRun;
+  // Não usamos orderBy para não exigir índice composto. Ordenamos em memória
+  // depois de buscar apenas a pequena quantidade de pedidos do ciclo.
   const snap = await db.collection('contentRequests')
     .where('status', '==', 'pending')
-    .orderBy('requestedAt', 'asc')
-    .limit(maxRequests)
+    .limit(agentConfig.limits.maxContentRequestsPerRun)
     .get();
 
-  for (const request of snap.docs) {
+  const requests = [...snap.docs].sort((a, b) => {
+    const at = String((a.data() as ContentRequestDoc).requestedAt || '');
+    const bt = String((b.data() as ContentRequestDoc).requestedAt || '');
+    return at.localeCompare(bt);
+  });
+
+  for (const request of requests) {
     if (tracker.elapsedMinutes() >= agentConfig.limits.maxRuntimeMinutes) {
       tracker.stoppedReason = tracker.stoppedReason || 'maxRuntimeMinutes atingido durante pedidos de usuários';
       break;
@@ -72,6 +77,7 @@ export async function processContentRequestsJob(tracker: RunTracker): Promise<vo
         .map((item: any) => item.level as EducationLevel)
         .filter(Boolean)
         .slice(0, 5);
+      if (levels.length === 0) throw new Error('Não foi possível identificar o nível educacional do assunto.');
 
       let curriculaReady = 0;
       let leavesDiscovered = 0;
@@ -92,8 +98,6 @@ export async function processContentRequestsJob(tracker: RunTracker): Promise<vo
         const needs = await analyzeSubjectLevel(subject, level);
         leavesDiscovered += needs.length;
 
-        // O mesmo planner/limite de IA usado no ciclo normal evita que um
-        // pedido de usuário consuma a cota inteira de uma vez.
         for (const need of needs.slice(0, agentConfig.limits.maxRequestTopicsPerRun)) {
           if (tracker.aiCalls >= agentConfig.limits.maxAiCallsPerRun) break;
           if (tracker.cardsGenerated >= agentConfig.limits.maxCardsPerRun) break;
@@ -104,13 +108,13 @@ export async function processContentRequestsJob(tracker: RunTracker): Promise<vo
         }
       }
 
-      const complete = levels.length > 0 && curriculaReady === levels.length;
-      const progress = {
-        levels: levels.length,
-        curriculaReady,
-        leavesDiscovered,
-        cardsGenerated,
-      };
+      let remainingNeeds = 0;
+      for (const level of levels) {
+        remainingNeeds += (await analyzeSubjectLevel(subject, level)).length;
+      }
+
+      const complete = curriculaReady === levels.length && remainingNeeds === 0;
+      const progress = { levels: levels.length, curriculaReady, leavesDiscovered, cardsGenerated };
 
       await request.ref.set({
         status: complete ? 'completed' : 'processing',
@@ -121,7 +125,7 @@ export async function processContentRequestsJob(tracker: RunTracker): Promise<vo
       tracker.log({
         action: complete ? '[request] conteúdo disponibilizado' : '[request] conteúdo em processamento',
         subject,
-        detail: `${curriculaReady} grade(s), ${leavesDiscovered} folhas, +${cardsGenerated} cards`,
+        detail: `${curriculaReady} grade(s), ${leavesDiscovered} folhas analisadas, +${cardsGenerated} cards, ${remainingNeeds} necessidades restantes`,
       });
     } catch (err: any) {
       tracker.errors++;
