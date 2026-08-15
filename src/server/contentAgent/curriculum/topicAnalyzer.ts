@@ -1,6 +1,6 @@
 // Decide quais folhas da grade curricular precisam de cards.
 // A unidade real de geração agora é o SUBTÓPICO; currículos antigos continuam
-// funcionando porque o adaptador trata o próprio tópico como folha.
+// funcionando porque o próprio tópico vira a folha.
 
 import { getCurriculum, getBucketStats } from '../../db/db';
 import type { EducationLevel, CardContentType } from '../../db/firestoreSchema';
@@ -13,8 +13,10 @@ export interface TopicNeed {
   subject: string;
   level: EducationLevel;
   cardType: CardContentType;
-  topic: string; // folha usada como chave do bucket e como topic do card
+  /** Chave única da folha: "Tópico > Subtópico" quando há hierarquia. */
+  topic: string;
   parentTopic?: string;
+  subtopic?: string;
   category: string;
   currentCount: number;
   stale: boolean;
@@ -37,14 +39,22 @@ export async function analyzeSubjectLevel(
   const curriculumResult = await getCurriculum(subject, level);
   if (!curriculumResult) return [];
 
-  const leaves = flattenCurriculum(curriculumResult.data);
-  const needs: TopicNeed[] = [];
+  const leaves = flattenCurriculum(curriculumResult.data).map(leaf => ({
+    ...leaf,
+    bucketTopic: leaf.topic.toLocaleLowerCase() === leaf.subtopic.toLocaleLowerCase()
+      ? leaf.subtopic
+      : `${leaf.topic} > ${leaf.subtopic}`,
+  }));
 
-  // Um read por folha e por tipo, em paralelo dentro de cada tipo.
+  const needs: TopicNeed[] = [];
+  const leafByBucket = new Map(leaves.map(leaf => [leaf.bucketTopic, leaf]));
+
   for (const cardType of agentConfig.activeCardTypes) {
-    const stats = await getBucketStats(subject, leaves.map(leaf => leaf.subtopic), level, cardType);
+    const uniqueBucketTopics = [...new Set(leaves.map(leaf => leaf.bucketTopic))];
+    const stats = await getBucketStats(subject, uniqueBucketTopics, level, cardType);
+
     for (const stat of stats) {
-      const leaf = leaves.find(item => item.subtopic === stat.topic);
+      const leaf = leafByBucket.get(stat.topic);
       const { priority, target } = priorityFor(stat.cardCount);
       const shortfall = Math.max(0, target - stat.cardCount);
       if (shortfall <= 0 && !stat.stale) continue;
@@ -55,6 +65,7 @@ export async function analyzeSubjectLevel(
         cardType,
         topic: stat.topic,
         parentTopic: leaf?.topic,
+        subtopic: leaf?.subtopic,
         category: leaf?.category ?? '',
         currentCount: stat.cardCount,
         stale: stat.stale,
