@@ -8,7 +8,7 @@ import { getSubjectLevels, getCurriculum } from '../../db/db';
 import type { EducationLevel, CardContentType } from '../../db/firestoreSchema';
 import { agentConfig, DEFAULT_CARD_TYPE_DISTRIBUTION } from '../config/agentConfig';
 import { analyzeSubjectLevel, TopicNeed } from '../curriculum/topicAnalyzer';
-import { hasRealSubtopics } from '../curriculum/curriculumHierarchy';
+import { hasRealSubtopics, toHierarchy } from '../curriculum/curriculumHierarchy';
 import { RunTracker } from '../monitoring/runLogger';
 import { loadAdaptations } from '../feedback/adaptationRepository';
 
@@ -16,6 +16,61 @@ export interface AgentPlan {
   needs: TopicNeed[];
   curriculaCreated: number;
   subjectsProcessed: number;
+}
+
+function logCurriculumTree(
+  tracker: RunTracker,
+  subject: string,
+  level: EducationLevel,
+  data: any,
+  source: string,
+) {
+  const hierarchy = toHierarchy(data);
+  const categories = hierarchy.categories ?? [];
+  const topicCount = categories.reduce((sum: number, category: any) => sum + (category.topics?.length ?? 0), 0);
+  const subtopicCount = categories.reduce(
+    (sum: number, category: any) => sum + (category.topics ?? []).reduce(
+      (topicSum: number, topic: string) => topicSum + (category.subtopics?.[topic]?.length ?? 0),
+      0,
+    ),
+  );
+
+  tracker.log({
+    action: '[curriculum] grade pronta',
+    subject,
+    level,
+    detail: `${source}: ${categories.length} categorias, ${topicCount} tópicos, ${subtopicCount} subtópicos`,
+  });
+
+  for (const category of categories) {
+    tracker.log({
+      action: '[curriculum] categoria',
+      subject,
+      level,
+      detail: `📚 ${category.category}`,
+    });
+
+    for (const topic of category.topics ?? []) {
+      const subtopics = category.subtopics?.[topic] ?? [];
+      tracker.log({
+        action: '[curriculum] tópico',
+        subject,
+        level,
+        topic,
+        detail: `📖 ${topic} → ${subtopics.length} subtópicos`,
+      });
+
+      if (subtopics.length > 0) {
+        tracker.log({
+          action: '[curriculum] subtópicos',
+          subject,
+          level,
+          topic,
+          detail: `└─ ${subtopics.join(' | ')}`,
+        });
+      }
+    }
+  }
 }
 
 async function ensureCurriculumReady(
@@ -30,21 +85,24 @@ async function ensureCurriculumReady(
         tracker.stoppedReason = tracker.stoppedReason || 'maxAiCallsPerRun atingido durante o planejamento';
         return false;
       }
-      tracker.log({ action: '[curriculum] identificando níveis', subject, detail: 'não estava no banco' });
+      tracker.log({ action: '[curriculum] identificando níveis', subject, level, detail: 'não estava no banco' });
       await identifySubjectLevelsTask(subject);
       tracker.aiCalls++;
       levelsOk = await getSubjectLevels(subject);
       if (!levelsOk) {
         tracker.errors++;
-        tracker.log({ action: '[curriculum] níveis não foram persistidos após identificação', subject });
+        tracker.log({ action: '[curriculum] níveis não foram persistidos após identificação', subject, level });
         return false;
       }
     }
 
     const existing = await getCurriculum(subject, level);
-    // Currículo novo: não chama IA.
+    // Currículo novo: gera grade hierárquica.
     // Currículo legado: uma chamada de IA enriquece topics → subtopics.
-    if (existing && hasRealSubtopics(existing.data)) return false;
+    if (existing && hasRealSubtopics(existing.data)) {
+      logCurriculumTree(tracker, subject, level, existing.data, 'cache/banco');
+      return false;
+    }
 
     if (tracker.aiCalls >= agentConfig.limits.maxAiCallsPerRun) {
       tracker.stoppedReason = tracker.stoppedReason || 'maxAiCallsPerRun atingido durante o planejamento';
@@ -54,15 +112,18 @@ async function ensureCurriculumReady(
     tracker.log({
       action: existing ? '[curriculum] enriquecendo grade legada' : '[curriculum] gerando grade hierárquica',
       subject,
-      detail: level,
+      level,
+      detail: existing ? 'tópicos existentes serão enriquecidos com subtópicos' : 'nova matéria/assunto',
     });
     const result = await generateCurriculumTask({ subject, educationLevel: level, language: agentConfig.defaultLanguage });
     if (!result.cacheHit) tracker.aiCalls++;
     tracker.curriculaCreated++;
+
+    logCurriculumTree(tracker, subject, level, { categories: result.categories }, `IA/${result.providerUsed}${result.enriched ? ' + enriquecimento' : ''}`);
     return true;
   } catch (err: any) {
     tracker.errors++;
-    tracker.log({ action: '[curriculum] falha ao preparar currículo', subject, detail: err?.message || String(err) });
+    tracker.log({ action: '[curriculum] falha ao preparar currículo', subject, level, detail: err?.message || String(err) });
     return false;
   }
 }
