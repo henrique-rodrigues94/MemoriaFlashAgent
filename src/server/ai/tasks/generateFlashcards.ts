@@ -29,10 +29,6 @@ export function normalizeForDedup(text: string): string {
  */
 export function explanationJustRepeatsAnswer(back: string, explanation: string): boolean {
   const normBack = normalizeForDedup(back);
-  // Remove os rótulos fixos que nós mesmos injetamos no prompt (regra 4) —
-  // "explicacao"/"curiosidade" não são conteúdo gerado pelo modelo, então
-  // não devem contar como "texto novo" ao medir o quanto sobra além da
-  // resposta.
   const normExpl = normalizeForDedup(explanation)
     .replace(/\bexplicacao\b/g, '')
     .replace(/\bcuriosidade\b/g, '')
@@ -40,14 +36,9 @@ export function explanationJustRepeatsAnswer(back: string, explanation: string):
     .trim();
   if (!normBack || !normExpl) return false;
 
-  // Resposta curta repetida 2+ vezes na explicação: forte sinal de que o
-  // modelo só ficou reafirmando a resposta em vez de explicar algo novo.
   const occurrences = normExpl.split(normBack).length - 1;
   if (occurrences >= 2 && normBack.length >= 2) return true;
 
-  // Caso geral: quanto sobra da explicação depois de remover o texto da
-  // resposta? Se sobrar muito pouco, a "explicação" é essencialmente só a
-  // resposta com enfeites, sem conteúdo didático novo.
   const remainder = normExpl.split(normBack).join(' ').replace(/\s+/g, ' ').trim();
   const remainderRatio = remainder.length / Math.max(normExpl.length, 1);
   const containsBack = normExpl.includes(normBack);
@@ -65,8 +56,9 @@ const EDUCATION_LEVEL_LABELS: Record<EducationLevel, string> = {
   tecnico: 'Curso Técnico / Ensino Técnico Profissionalizante — foco prático, aplicado e voltado para procedimentos e uso real no dia a dia de trabalho, evitando teoria excessiva',
 };
 
-/** Distribui `total` em `slots` partes o mais equilibradas possível (a diferença entre a maior e a menor parte nunca passa de 1). */
+/** Distribui `total` em `slots` partes o mais equilibradas possível. */
 function distributeEvenly(total: number, slots: number): number[] {
+  if (slots <= 0) return [];
   const base = Math.floor(total / slots);
   const remainder = total % slots;
   return Array.from({ length: slots }, (_, i) => base + (i < remainder ? 1 : 0));
@@ -91,12 +83,7 @@ function sanitizeTopics(topics: string[]): string[] {
   }).map(topic => topic.trim());
 }
 
-/**
- * Gera exatamente `count` flashcards via IA para UM subtópico específico
- * (ou para o assunto geral, quando `topicLabel` é o próprio assunto).
- * Contém toda a lógica de prompt/schema/dedup/anti-repetição que antes
- * vivia direto em generateFlashcardsTask — agora reutilizável por balde.
- */
+/** Gera os cards de um único tópico em um lote. */
 async function generateCardsForTopic(args: {
   subject: string;
   topicLabel: string;
@@ -167,14 +154,10 @@ Gere exatamente ${count} flashcards distintos entre si, cobrindo os conceitos, d
     userPrompt,
     schemaHint,
     geminiSchema,
-    // 280 tokens/card comportam frente, verso e explicação mantendo a saída
-    // dos lotes grandes dentro do tempo esperado pelos provedores de fallback.
     maxOutputTokens: Math.max(8192, count * 280),
   });
 
   const rawCards = extractArrayField(data, ['cards', 'flashcards']) as Array<Record<string, unknown>>;
-
-  // Dedup intra-lote: remove cards com front repetido no mesmo batch
   const seen = new Set<string>();
   const cards = rawCards.filter((card) => {
     const front = typeof card?.front === 'string' ? card.front : '';
@@ -183,19 +166,13 @@ Gere exatamente ${count} flashcards distintos entre si, cobrindo os conceitos, d
     if (!key || !back.trim() || seen.has(key)) return false;
     seen.add(key);
     return true;
-  }).map(card => ({
-    ...card,
-    // O balde é definido pela escolha do usuário. Não usamos o tópico livre
-    // retornado pelo modelo, que poderia ser mais amplo ou outro subtópico.
-    topic: topicLabel,
-  }));
+  }).map(card => ({ ...card, topic: topicLabel }));
 
   const removedCount = rawCards.length - cards.length;
   if (removedCount > 0) {
     console.info(`[generateFlashcards] ${removedCount} card(s) duplicado(s) removido(s) (provider: ${providerUsed}).`);
   }
 
-  // Substitui explicações que só repetem a resposta
   let fixedExplanationCount = 0;
   const finalCards = cards.map((card) => {
     const back = typeof card?.back === 'string' ? card.back : '';
@@ -210,7 +187,10 @@ Gere exatamente ${count} flashcards distintos entre si, cobrindo os conceitos, d
     console.info(`[generateFlashcards] ${fixedExplanationCount} explicação(ões) corrigida(s) (provider: ${providerUsed}).`);
   }
 
-  return { cards: finalCards as unknown as BankCard[], providerUsed };
+  // Alguns provedores podem devolver mais itens que o solicitado apesar do
+  // prompt/schema. O contrato desta função é exato: nunca persiste nem
+  // devolve mais que `count`, evitando ultrapassar o orçamento por execução.
+  return { cards: finalCards.slice(0, count) as unknown as BankCard[], providerUsed };
 }
 
 export async function generateFlashcardsTask(args: {
@@ -220,20 +200,8 @@ export async function generateFlashcardsTask(args: {
   difficulty?: string;
   selectedTopics?: string[];
   educationLevel?: EducationLevel;
-  /**
-   * 'subject' (padrão) → geração normal por matéria/tópico, PODE reaproveitar
-   * e alimentar o banco compartilhado do Firestore.
-   * 'document' → conteúdo extraído de um documento privado do usuário
-   * (fluxo do Scanner). NUNCA passa pelo banco — geração de outro usuário
-   * jamais deve vazar conteúdo do documento de ninguém, e vice-versa.
-   */
   sourceType?: GenerationSourceType;
-  /**
-   * Fronts normalizados de cards já existentes no baralho do usuário.
-   * A geração filtra esses fronts para não duplicar cards que o usuário já tem.
-   */
   existingFronts?: string[];
-  /** Tipo de card a gerar: 'definition' | 'quiz' | 'gap' | 'comparison' | 'applied' | 'review' */
   cardContentType?: string;
 }) {
   const {
@@ -248,7 +216,6 @@ export async function generateFlashcardsTask(args: {
     cardContentType = 'definition',
   } = args;
 
-  // Prompt adicional baseado no tipo de card escolhido pelo usuário
   const CARD_TYPE_PROMPTS: Record<string, string> = {
     definition:  'Gere flashcards no formato Pergunta→Definição/Conceito. A frente deve ser uma pergunta direta sobre o conceito. O verso deve trazer a definição completa e precisa.',
     quiz:        'Gere flashcards estilo questão de prova/concurso. A frente apresenta um enunciado desafiador com "pegadinhas" quando relevante. O verso traz a resposta correta e a justificativa.',
@@ -260,34 +227,24 @@ export async function generateFlashcardsTask(args: {
   const cardTypeInstruction = CARD_TYPE_PROMPTS[cardContentType] ?? CARD_TYPE_PROMPTS['definition'];
 
   const useBank = sourceType === 'subject';
-
-  // Set de fronts já existentes no baralho do usuário (para deduplicação)
   const existingFrontsSet = new Set<string>(existingFronts);
-
-  // Cada slot é um "balde" independente: matéria + (tópico específico OU o
-  // próprio assunto geral, quando nenhum tópico foi selecionado).
-  // IMPORTANTE: count por tópico é distribuído APENAS entre os tópicos que
-  // realmente receberão cards (count > 0), para nunca zerar um slot.
   const normalizedTopics = sanitizeTopics(selectedTopics);
   const topicsWithCount = normalizedTopics.length > 0
     ? normalizedTopics
         .map((topic, i) => ({
           topicLabel: topic,
           isSpecificTopic: true,
-          count: distributeEvenly(count, selectedTopics.length)[i],
+          count: distributeEvenly(count, normalizedTopics.length)[i],
         }))
-        .filter(s => s.count > 0)  // remove slots zerados
+        .filter(s => s.count > 0)
     : [{ topicLabel: prompt, isSpecificTopic: false, count }];
 
   const slots = topicsWithCount;
-
   let bankHits = 0;
   let aiGenerated = 0;
   const providersUsed = new Set<string>();
   const allCards: BankCard[] = [];
 
-  // Prefetch todos os buckets em paralelo antes do loop — reduz latência total
-  // de N × (1 Firestore read) para ~1 × (1 Firestore read) em paralelo.
   const prefetchedBuckets = useBank
     ? await prefetchCardBuckets(prompt, slots.map(s => s.topicLabel), educationLevel, cardContentType as CardContentType)
     : new Map<string, { cards: BankCard[]; stale: boolean }>();
@@ -295,26 +252,19 @@ export async function generateFlashcardsTask(args: {
   for (const slot of slots) {
     if (slot.count <= 0) continue;
 
-    // 1. Usa resultado do prefetch (já em memória, 0 reads adicionais)
     const bId = bucketId(prompt, slot.topicLabel, educationLevel, cardContentType as CardContentType);
     const bankResult = prefetchedBuckets.get(bId) ?? { cards: [], stale: true };
-
-    // Nunca devolva mais cards do que a quantidade solicitada. Quando o
-    // bucket está expirado, ele não entra na resposta: geramos um lote novo e
-    // o persistimos abaixo para renovar o banco.
     const bankCards = bankResult.stale ? [] : bankResult.cards.slice(0, slot.count);
     const bankStale = bankResult.stale;
     const enoughFromBank = bankCards.length >= slot.count && !bankStale;
 
     bankHits += bankCards.length;
     if (enoughFromBank) {
-      // Banco tem cards suficientes e frescos — zero IA
       allCards.push(...bankCards);
       continue;
     }
 
-    // 2. Banco vazio, insuficiente ou stale → gera via IA
-    allCards.push(...bankCards); // aproveita o que tiver enquanto completa
+    allCards.push(...bankCards);
     const shortfall = slot.count - bankCards.length;
     if (shortfall <= 0) continue;
 
@@ -332,9 +282,6 @@ export async function generateFlashcardsTask(args: {
     providersUsed.add(providerUsed);
     allCards.push(...generated);
 
-    // 3. Salva no banco para próximas requisições (1 write por slot)
-    // Aguardamos o commit para garantir que requests paralelos encontrem
-    // os dados antes de chamar a IA novamente.
     if (useBank && generated.length > 0) {
       await saveCardBucket(
         prompt,
@@ -347,7 +294,6 @@ export async function generateFlashcardsTask(args: {
     }
   }
 
-  // Remove cards cujo front já existe no baralho do usuário
   const dedupedCards = existingFrontsSet.size > 0
     ? allCards.filter(c => {
         const normFront = normalizeForDedup(c.front || '');
@@ -355,7 +301,6 @@ export async function generateFlashcardsTask(args: {
       })
     : allCards;
 
-  // Avisa no log se muitos cards foram filtrados (indica necessidade de ampliar o prompt)
   const removedByDedup = allCards.length - dedupedCards.length;
   if (removedByDedup > 0) {
     console.info(`[generateFlashcards] ${removedByDedup} card(s) filtrado(s) por já existirem no baralho do usuário.`);
