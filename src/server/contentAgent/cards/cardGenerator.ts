@@ -1,4 +1,5 @@
 import { generateFlashcardsTask } from '../../ai/tasks/generateFlashcards';
+import { saveCardBucket } from '../../db/db';
 import { agentConfig } from '../config/agentConfig';
 import { TopicNeed } from '../curriculum/topicAnalyzer';
 import { RunTracker } from '../monitoring/runLogger';
@@ -18,6 +19,9 @@ export async function generateForTopicNeed(need:TopicNeed,tracker:RunTracker,sou
     try{
       const result=await generateFlashcardsTask({prompt:need.subject,count:batchCount,language:agentConfig.defaultLanguage,difficulty,selectedTopics:[need.topic],educationLevel:need.level,sourceType:sourceContext?'document':'subject',cardContentType:need.cardType,sourceContext});
       aiCalls++;tracker.aiCalls++;const generatedThisBatch=result.aiGenerated??0;const bankHitsThisBatch=result.bankHits??0;const progressThisBatch=Math.min(batchCount,generatedThisBatch+bankHitsThisBatch);cardsGenerated+=generatedThisBatch;tracker.cardsGenerated+=generatedThisBatch;
+      if(sourceContext&&result.cards.length>0&&generatedThisBatch>0){
+        await saveCardBucket(need.subject,need.topic,need.level,need.cardType,result.cards.filter(card=>Boolean(card.front&&card.back)).map(card=>({...card,id:undefined as never})),result.providerUsed,need.subtopic||'');
+      }
       tracker.log({action:'[cards] lote gerado',subject:need.subject,topic:need.topic,detail:`${need.cardType}/${need.level}: +${generatedThisBatch} via IA, ${bankHitsThisBatch} do banco (provider: ${result.providerUsed})${sourceContext?' [fonte do documento]':''}`});
       remaining-=progressThisBatch;if(progressThisBatch<=0){tracker.errors++;tracker.log({action:'[cards] lote sem geração',subject:need.subject,topic:need.topic,detail:`A IA/banco não devolveu cards para um lote de ${batchCount}.`});break;}
     }catch(err:any){tracker.errors++;tracker.log({action:'[cards] falha no lote',subject:need.subject,topic:need.topic,detail:err?.message||String(err)});break;}
