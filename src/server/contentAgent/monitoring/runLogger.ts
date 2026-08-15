@@ -67,7 +67,7 @@ export class RunTracker {
 
   toSummary(status: AgentRunSummary['status']): AgentRunSummary {
     const finishedAt = Date.now();
-    return {
+    const summary: AgentRunSummary = {
       runId: this.runId,
       startedAt: new Date(this.startedAt).toISOString(),
       finishedAt: new Date(finishedAt).toISOString(),
@@ -83,9 +83,16 @@ export class RunTracker {
       feedbackAnalyzed: this.feedbackAnalyzed,
       adaptationsApplied: this.adaptationsApplied,
       cardsReviewed: this.cardsReviewed,
-      stoppedReason: this.stoppedReason,
       logs: this.logs.slice(-200), // evita doc gigante; log completo já foi pro console/stdout
     };
+
+    // Firestore não aceita undefined. Só adicionamos stoppedReason quando
+    // realmente existe uma razão de parada (limite, timeout etc.).
+    if (this.stoppedReason !== undefined) {
+      summary.stoppedReason = this.stoppedReason;
+    }
+
+    return summary;
   }
 }
 
