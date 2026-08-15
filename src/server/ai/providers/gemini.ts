@@ -1,24 +1,32 @@
 // 📁 MemoriaFlashAgent/src/server/ai/providers/gemini.ts
 //
 // Google Gemini — PROVEDOR PRINCIPAL
-// Usa a mesma configuração validada no aplicativo MemoriaFlash.
-// Suporta structured output nativo (responseSchema) → JSON garantido.
+// Estratégia de economia:
+// - mantém o modelo funcional do MemoriaFlash (`gemini-flash-latest`);
+// - usa structured output nativo para evitar retries/parsing;
+// - limita a saída por chamada;
+// - registra tokens/custo estimado quando o provedor devolve usageMetadata;
+// - permite teto opcional de custo por execução para contas pagas;
+// - tarefas simples podem usar GEMINI_MODEL=gemini-2.5-flash-lite sem alterar código.
 //
-// Variáveis de ambiente:
-//   GEMINI_API_KEY           obrigatória
-//   GEMINI_MODEL             opcional (padrão: gemini-flash-latest)
-//   GEMINI_MAX_OUTPUT_TOKENS opcional (padrão: 32768)
+// Variáveis:
+//   GEMINI_API_KEY                 obrigatória
+//   GEMINI_MODEL                   padrão gemini-flash-latest
+//   GEMINI_MAX_OUTPUT_TOKENS       padrão 32768
+//   GEMINI_MAX_COST_USD_PER_RUN    padrão 0 = sem bloqueio
+//   GEMINI_INPUT_PRICE_PER_MILLION opcional, para estimativa de conta paga
+//   GEMINI_OUTPUT_PRICE_PER_MILLION opcional, para estimativa de conta paga
 
 import { GoogleGenAI } from '@google/genai';
 import { AIProvider, AIProviderError, GenerateJSONParams } from '../types';
 
-// O MemoriaFlash já funciona com este alias; manter o Agent alinhado evita
-// que uma execução use um modelo diferente quando GEMINI_MODEL não estiver
-// definido como secret no GitHub Actions.
-const DEFAULT_MODEL      = 'gemini-flash-latest';
+const DEFAULT_MODEL = 'gemini-flash-latest';
 const DEFAULT_MAX_TOKENS = 32768;
+const DEFAULT_INPUT_PRICE = 0;
+const DEFAULT_OUTPUT_PRICE = 0;
 
 let _client: GoogleGenAI | null = null;
+let runCostUsd = 0;
 
 function getClient(): GoogleGenAI {
   const key = process.env.GEMINI_API_KEY;
@@ -30,8 +38,7 @@ function getClient(): GoogleGenAI {
 }
 
 function getModel(): string {
-  const configured = process.env.GEMINI_MODEL?.trim();
-  return configured || DEFAULT_MODEL;
+  return process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL;
 }
 
 function getMaxTokens(params: GenerateJSONParams): number {
@@ -39,11 +46,30 @@ function getMaxTokens(params: GenerateJSONParams): number {
     ?? (parseInt(process.env.GEMINI_MAX_OUTPUT_TOKENS || '0') || DEFAULT_MAX_TOKENS);
 }
 
+function getPrice(envName: string, fallback: number): number {
+  const value = Number(process.env[envName]);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function estimateCost(inputTokens: number, outputTokens: number): number {
+  const inputPrice = getPrice('GEMINI_INPUT_PRICE_PER_MILLION', DEFAULT_INPUT_PRICE);
+  const outputPrice = getPrice('GEMINI_OUTPUT_PRICE_PER_MILLION', DEFAULT_OUTPUT_PRICE);
+  return (inputTokens / 1_000_000) * inputPrice + (outputTokens / 1_000_000) * outputPrice;
+}
+
+function assertBudget(estimatedNextCost: number): void {
+  const max = Number(process.env.GEMINI_MAX_COST_USD_PER_RUN || '0');
+  if (max > 0 && runCostUsd + estimatedNextCost > max) {
+    throw new AIProviderError(
+      `Gemini: teto de custo da execução atingido (~US$ ${runCostUsd.toFixed(5)} / US$ ${max.toFixed(2)})`,
+      'gemini',
+      false,
+    );
+  }
+}
+
 function classifyError(err: any): AIProviderError {
-  const msg    = err?.message || String(err);
-  // O SDK pode encapsular o erro HTTP como texto JSON em `message`. Extrair
-  // esse código garante que 429 entre no cooldown imediatamente, em vez de
-  // gastar novas tentativas da cota já esgotada.
+  const msg = err?.message || String(err);
   const messageStatus = typeof msg === 'string'
     ? Number(msg.match(/(?:"code"|\bstatus\b)\s*[:=]\s*(\d{3})/)?.[1]) || undefined
     : undefined;
@@ -58,10 +84,9 @@ function classifyError(err: any): AIProviderError {
 }
 
 export const geminiProvider: AIProvider = {
-  id:    'gemini',
+  id: 'gemini',
   label: 'Google Gemini',
-  tier:  'free',
-
+  tier: 'free',
   isConfigured: () => !!process.env.GEMINI_API_KEY,
 
   async generateJSON(params: GenerateJSONParams): Promise<unknown> {
@@ -74,11 +99,7 @@ export const geminiProvider: AIProvider = {
         maxOutputTokens: getMaxTokens(params),
         temperature: params.temperature ?? 0.7,
       };
-
-      // Structured output nativo — garante schema sem depender do parsing
-      if (params.geminiSchema) {
-        config.responseSchema = params.geminiSchema;
-      }
+      if (params.geminiSchema) config.responseSchema = params.geminiSchema;
 
       const response = await ai.models.generateContent({
         model: getModel(),
@@ -89,7 +110,17 @@ export const geminiProvider: AIProvider = {
       const text = response.text;
       if (!text?.trim()) throw new Error('Resposta vazia do Gemini');
 
-      // Com responseSchema, a resposta já é JSON válido — parse direto
+      const usage = (response as any).usageMetadata;
+      if (usage) {
+        const input = Number(usage.promptTokenCount ?? usage.inputTokenCount ?? 0);
+        const output = Number(usage.candidatesTokenCount ?? usage.outputTokenCount ?? 0);
+        const cached = Number(usage.cachedContentTokenCount ?? 0);
+        const cost = estimateCost(input, output);
+        assertBudget(cost);
+        runCostUsd += cost;
+        console.info(`[gemini] model=${getModel()} tokens=${input}in/${output}out cache=${cached} cost≈$${cost.toFixed(6)} accumulated≈$${runCostUsd.toFixed(6)}`);
+      }
+
       return JSON.parse(text);
     } catch (err: any) {
       if (err instanceof AIProviderError) throw err;
