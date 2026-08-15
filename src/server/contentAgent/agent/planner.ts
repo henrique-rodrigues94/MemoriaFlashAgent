@@ -33,13 +33,28 @@ async function ensureCurriculumReady(
   try {
     let levelsOk = await getSubjectLevels(subject);
     if (!levelsOk) {
+      if (tracker.aiCalls >= agentConfig.limits.maxAiCallsPerRun) {
+        tracker.stoppedReason = tracker.stoppedReason || 'maxAiCallsPerRun atingido durante o planejamento';
+        return false;
+      }
       tracker.log({ action: '[curriculum] identificando níveis', subject, detail: 'não estava no banco' });
       await identifySubjectLevelsTask(subject);
       tracker.aiCalls++;
+      levelsOk = await getSubjectLevels(subject);
+      if (!levelsOk) {
+        tracker.errors++;
+        tracker.log({ action: '[curriculum] níveis não foram persistidos após identificação', subject });
+        return false;
+      }
     }
 
     const existing = await getCurriculum(subject, level);
     if (existing) return false; // já pronto, nada criado agora
+
+    if (tracker.aiCalls >= agentConfig.limits.maxAiCallsPerRun) {
+      tracker.stoppedReason = tracker.stoppedReason || 'maxAiCallsPerRun atingido durante o planejamento';
+      return false;
+    }
 
     tracker.log({ action: '[curriculum] gerando grade curricular', subject, detail: level });
     await generateCurriculumTask({ subject, educationLevel: level, language: agentConfig.defaultLanguage });
@@ -66,11 +81,27 @@ export async function buildPlan(tracker: RunTracker): Promise<AgentPlan> {
       tracker.stoppedReason = 'maxRuntimeMinutes atingido durante o planejamento';
       break;
     }
+    if (tracker.aiCalls >= agentConfig.limits.maxAiCallsPerRun) {
+      tracker.stoppedReason = tracker.stoppedReason || 'maxAiCallsPerRun atingido durante o planejamento';
+      break;
+    }
 
     for (const level of managed.levels) {
+      if (tracker.elapsedMinutes() >= agentConfig.limits.maxRuntimeMinutes) {
+        tracker.stoppedReason = 'maxRuntimeMinutes atingido durante o planejamento';
+        break;
+      }
+      if (tracker.aiCalls >= agentConfig.limits.maxAiCallsPerRun) {
+        tracker.stoppedReason = tracker.stoppedReason || 'maxAiCallsPerRun atingido durante o planejamento';
+        break;
+      }
+
       const created = await ensureCurriculumReady(managed.subject, level, tracker);
       if (created) curriculaCreated++;
 
+      // Mesmo quando não há orçamento para novas chamadas de IA, o currículo
+      // existente ainda pode ser analisado e gerar needs usando somente o
+      // banco, sem ultrapassar o limite de chamadas.
       const needs = await analyzeSubjectLevel(managed.subject, level);
       allNeeds.push(...needs);
 
