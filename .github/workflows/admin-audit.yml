@@ -1,0 +1,67 @@
+name: admin-audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      save_report:
+        description: 'Salvar o relatório completo como artifact do GitHub Actions?'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Testes
+        run: npm test
+
+      - name: Executar auditoria completa do Firestore
+        run: npm run admin:audit > admin-audit-report.json
+        env:
+          NODE_ENV: production
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
+          FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
+          FIRESTORE_FREE_STORAGE_BYTES: ${{ secrets.FIRESTORE_FREE_STORAGE_BYTES || '1073741824' }}
+
+      - name: Mostrar resumo
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const r = JSON.parse(fs.readFileSync('admin-audit-report.json', 'utf8'));
+          console.log(`Matérias: ${r.content?.subjectCount ?? 0}`);
+          console.log(`Cards: ${r.content?.totalCards ?? 0}`);
+          console.log(`Feedback pendente: ${r.feedback?.pending ?? 0}`);
+          console.log(`Uso estimado do Firestore: ${r.storage?.usedPercent ?? 0}%`);
+          console.log(`Solicitações pendentes: ${r.requests?.pending ?? 0}`);
+          NODE
+
+      - name: Publicar relatório
+        if: ${{ inputs.save_report }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: memoriaflash-admin-audit
+          path: admin-audit-report.json
+          retention-days: 14
