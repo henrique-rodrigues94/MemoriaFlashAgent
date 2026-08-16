@@ -10,6 +10,7 @@
     "dev": "tsx src/server/contentAgent/run.ts",
     "rollback": "tsx src/server/contentAgent/rollback.ts",
     "admin:report": "tsx src/server/contentAgent/admin/report.ts",
+    "production:check": "tsx -e \"import { validateProductionEnvironment } from './src/server/contentAgent/productionGate'; const c=validateProductionEnvironment(); console.table(c); if(c.some(x=>!x.ok)) process.exit(1)\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
