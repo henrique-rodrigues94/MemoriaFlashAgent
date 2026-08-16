@@ -1,10 +1,87 @@
 import { generateFlashcardsTask } from '../../ai/tasks/generateFlashcards';
-import { queryNegativeFeedbackForCorrection } from '../feedback/feedbackRepository';
+import { queryNegativeFeedbackForCorrection, markFeedbackProcessed, CorrectionFeedbackDoc } from '../feedback/feedbackRepository';
 import { aggregateFeedbackByCard } from '../feedback/feedbackAnalyzer';
 import { loadBucketById, replaceCardByBucketId } from '../cards/cardBucketRepository';
 import { agentConfig } from '../config/agentConfig';
 import { RunTracker } from '../monitoring/runLogger';
-import type { CardFeedbackDoc, CardContentType, EducationLevel, BankCard } from '../../db/firestoreSchema';
-const ERROR_REASONS=new Set(['wrong_answer','bad_explanation','confusing_question','outdated_content','other']);
-function correctionPrompt(card:BankCard,feedback:CardFeedbackDoc[]):string{const evidence=feedback.slice(0,8).map(f=>`- motivo=${f.reason||'other'} comentário=${f.comment||'sem comentário'}`).join('\n');return `Corrija SOMENTE este flashcard. Não mude o objetivo pedagógico nem o tópico. Remova o erro apontado e produza uma versão clara, factual e adequada ao nível.\nCARD ATUAL:\nFrente: ${card.front}\nVerso: ${card.back}\nExplicação: ${card.explanation||''}\nTópico: ${card.topic}\nSubtópico: ${card.subtopic||''}\nFEEDBACK:\n${evidence}`;}
-export async function correctCardsJob(tracker:RunTracker):Promise<void>{const feedback=(await queryNegativeFeedbackForCorrection(500)).filter(f=>ERROR_REASONS.has(String(f.reason||'other')));tracker.feedbackAnalyzed+=feedback.length;const byCard=aggregateFeedbackByCard(feedback).slice(0,agentConfig.limits.maxFeedbackCardsPerRun);for(const aggregate of byCard){if(tracker.elapsedMinutes()>=agentConfig.limits.maxRuntimeMinutes||tracker.aiCalls>=agentConfig.limits.maxAiCallsPerRun)break;const matching=feedback.filter(f=>f.cardId===aggregate.cardId&&f.bucketId);const first=matching[0];if(!first)continue;try{const bucket=await loadBucketById(first.bucketId);const card=bucket?.cards.find(c=>c.id===aggregate.cardId);if(!card){tracker.log({action:'[correction] card não encontrado',subject:first.subject,topic:first.topic,detail:`bucket=${first.bucketId} card=${aggregate.cardId}`});continue;}const result=await generateFlashcardsTask({prompt:correctionPrompt(card,matching),count:1,language:agentConfig.defaultLanguage,difficulty:card.difficulty,selectedTopics:[first.topic],educationLevel:first.level as EducationLevel,sourceType:'subject'});tracker.aiCalls++;const replacement=result.cards?.find((c:any)=>c?.front&&c?.back);if(!replacement){tracker.errors++;continue;}const ok=await replaceCardByBucketId(first.bucketId,aggregate.cardId,{front:replacement.front,back:replacement.back,explanation:replacement.explanation||'',topic:first.topic,subtopic:card.subtopic,difficulty:replacement.difficulty||card.difficulty,qualityScore:replacement.qualityScore,accuracyScore:replacement.accuracyScore,relevanceScore:replacement.relevanceScore,groundingScore:replacement.groundingScore,agentVersion:agentConfig.version,promptVersion:agentConfig.promptVersion,model:result.providerUsed},`feedback: ${matching.map(f=>f.reason||'other').join(',')}`);if(ok){tracker.adaptationsApplied++;tracker.log({action:'[correction] card corrigido e substituído',subject:first.subject,topic:first.topic,detail:`card=${aggregate.cardId}, feedback=${matching.length}, provedor=${result.providerUsed}`});}else tracker.errors++;}catch(err:any){tracker.errors++;tracker.log({action:'[correction] falha ao corrigir card',subject:first.subject,topic:first.topic,detail:err?.message||String(err)});}}}
+import type { CardFeedbackDoc, EducationLevel, BankCard } from '../../db/firestoreSchema';
+
+const ERROR_REASONS = new Set(['wrong_answer', 'bad_explanation', 'confusing_question', 'outdated_content', 'other']);
+
+function correctionPrompt(card: BankCard, feedback: CardFeedbackDoc[]): string {
+  const evidence = feedback.slice(0, 8).map(f => `- motivo=${f.reason || 'other'} comentário=${f.comment || 'sem comentário'}`).join('\n');
+  return `Corrija SOMENTE este flashcard. Não mude o objetivo pedagógico nem o tópico. Remova o erro apontado e produza uma versão clara, factual e adequada ao nível.\nCARD ATUAL:\nFrente: ${card.front}\nVerso: ${card.back}\nExplicação: ${card.explanation || ''}\nTópico: ${card.topic}\nSubtópico: ${card.subtopic || ''}\nFEEDBACK:\n${evidence}`;
+}
+
+export async function correctCardsJob(tracker: RunTracker): Promise<void> {
+  const feedback: CorrectionFeedbackDoc[] = (await queryNegativeFeedbackForCorrection(500))
+    .filter(f => ERROR_REASONS.has(String(f.reason || 'other')));
+  tracker.feedbackAnalyzed += feedback.length;
+
+  const byCard = aggregateFeedbackByCard(feedback).slice(0, agentConfig.limits.maxFeedbackCardsPerRun);
+  for (const aggregate of byCard) {
+    if (tracker.elapsedMinutes() >= agentConfig.limits.maxRuntimeMinutes || tracker.aiCalls >= agentConfig.limits.maxAiCallsPerRun) break;
+
+    const matching = feedback.filter(f => f.cardId === aggregate.cardId && f.bucketId);
+    const first = matching[0];
+    if (!first) continue;
+
+    try {
+      const bucket = await loadBucketById(first.bucketId);
+      const card = bucket?.cards.find(c => c.id === aggregate.cardId);
+      if (!card) {
+        tracker.log({ action: '[correction] card não encontrado', subject: first.subject, topic: first.topic, detail: `bucket=${first.bucketId} card=${aggregate.cardId}` });
+        continue;
+      }
+
+      const result = await generateFlashcardsTask({
+        prompt: correctionPrompt(card, matching),
+        count: 1,
+        language: agentConfig.defaultLanguage,
+        difficulty: card.difficulty,
+        selectedTopics: [first.topic],
+        educationLevel: first.level as EducationLevel,
+        sourceType: 'subject',
+      });
+      tracker.aiCalls++;
+
+      const replacement = result.cards?.find((c: any) => c?.front && c?.back);
+      if (!replacement) {
+        tracker.errors++;
+        continue;
+      }
+
+      const ok = await replaceCardByBucketId(
+        first.bucketId,
+        aggregate.cardId,
+        {
+          front: replacement.front,
+          back: replacement.back,
+          explanation: replacement.explanation || '',
+          topic: first.topic,
+          subtopic: card.subtopic,
+          difficulty: replacement.difficulty || card.difficulty,
+          qualityScore: replacement.qualityScore,
+          accuracyScore: replacement.accuracyScore,
+          relevanceScore: replacement.relevanceScore,
+          groundingScore: replacement.groundingScore,
+          agentVersion: agentConfig.version,
+          promptVersion: agentConfig.promptVersion,
+          model: result.providerUsed,
+        },
+        `feedback: ${matching.map(f => f.reason || 'other').join(',')}`,
+      );
+
+      if (ok) {
+        await markFeedbackProcessed(matching.map(f => f.feedbackId));
+        tracker.adaptationsApplied++;
+        tracker.log({ action: '[correction] card corrigido e substituído', subject: first.subject, topic: first.topic, detail: `card=${aggregate.cardId}, feedback=${matching.length}, provedor=${result.providerUsed}` });
+      } else {
+        tracker.errors++;
+      }
+    } catch (err: any) {
+      tracker.errors++;
+      tracker.log({ action: '[correction] falha ao corrigir card', subject: first.subject, topic: first.topic, detail: err?.message || String(err) });
+    }
+  }
+}
