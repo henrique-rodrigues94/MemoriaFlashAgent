@@ -85,11 +85,10 @@ export const agentConfig = {
     maxAiCallsPerRun: envInt('CONTENT_AGENT_MAX_AI_CALLS', 50),
     maxTopicsPerRun: envInt('CONTENT_AGENT_MAX_TOPICS', 20),
     maxRetries: envInt('CONTENT_AGENT_MAX_RETRIES', 2),
+    requestProcessingTimeoutMinutes: envInt('CONTENT_AGENT_REQUEST_TIMEOUT_MIN', 120),
     batchSize: envInt('CONTENT_AGENT_BATCH_SIZE', 20),
     maxCardsReviewedPerTopic: envInt('CONTENT_AGENT_MAX_CARDS_REVIEWED', 5),
 
-    // Pedidos de usuários: processamento incremental para não transformar
-    // uma matéria nova em centenas de chamadas de IA de uma vez.
     maxContentRequestsPerRun: envInt('CONTENT_AGENT_MAX_REQUESTS', 2),
     maxRequestTopicsPerRun: envInt('CONTENT_AGENT_MAX_REQUEST_TOPICS', 12),
   },
