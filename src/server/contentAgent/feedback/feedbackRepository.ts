@@ -14,21 +14,16 @@ export async function queryFeedback(q: FeedbackQuery): Promise<CardFeedbackDoc[]
   return snap.docs.map(d => d.data() as CardFeedbackDoc);
 }
 
-/**
- * A fila de correção é persistente: feedback novo entra com status=pending.
- * Depois que o Agent substitui o card com sucesso, o job marca os registros
- * como processed. Assim o mesmo feedback não dispara correções repetidas em
- * todas as execuções do Agent.
- */
+/** Feedback novo entra com status=pending. O Agent só consome essa fila.
+ * O filtro de status é feito em memória para evitar exigir índice composto. */
 export async function queryNegativeFeedbackForCorrection(limit = 500): Promise<CorrectionFeedbackDoc[]> {
   const db = getAdminFirestore();
   if (!db) return [];
-  const snap = await db.collection('cardFeedback')
-    .where('rating', '==', 'negative')
-    .where('status', '==', 'pending')
-    .limit(limit)
-    .get();
-  return snap.docs.map(d => ({ ...(d.data() as CardFeedbackDoc), feedbackId: d.id }));
+  const snap = await db.collection('cardFeedback').where('rating', '==', 'negative').limit(Math.max(limit * 2, limit)).get();
+  return snap.docs
+    .filter(d => String(d.data()?.status || '') === 'pending')
+    .slice(0, limit)
+    .map(d => ({ ...(d.data() as CardFeedbackDoc), feedbackId: d.id }));
 }
 
 export async function markFeedbackProcessed(feedbackIds: string[]): Promise<void> {
@@ -37,10 +32,7 @@ export async function markFeedbackProcessed(feedbackIds: string[]): Promise<void
   const batch = db.batch();
   const now = new Date().toISOString();
   for (const id of feedbackIds.slice(0, 500)) {
-    batch.update(db.collection('cardFeedback').doc(id), {
-      status: 'processed',
-      processedAt: now,
-    });
+    batch.update(db.collection('cardFeedback').doc(id), { status: 'processed', processedAt: now });
   }
   await batch.commit();
 }
