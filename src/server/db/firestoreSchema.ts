@@ -28,7 +28,7 @@ export interface CardFeedbackDoc { cardId: string; bucketId: string; subject: st
 export interface ContentIndexDoc { subjectId: string; subject: string; normalized: string; aliases: string[]; status: 'pending' | 'building' | 'ready' | 'error'; version: number; totalTopics: number; totalSubtopics: number; totalCards: number; updatedAt: string; }
 
 export type ContentRequestStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'building' | 'error';
-export interface ContentRequestSourceMeta { fileName: string; mimeType: 'application/pdf' | 'text/plain'; totalChars: number; chunkCount: number; createdAt: string; }
+export interface ContentRequestSourceMeta { fileName: string; mimeType: 'application/pdf' | 'text/plain'; totalChars: number; chunkCount: number; createdAt: string; sourceHash?: string; }
 export interface ContentRequestDoc {
   subject?: string;
   requestedSubject?: string;
@@ -45,6 +45,8 @@ export interface ContentRequestDoc {
   requestedBy?: string;
   lastError?: string;
   error?: string;
+  duplicateOf?: string;
+  recoveredAt?: string;
   source?: ContentRequestSourceMeta;
   progress?: { levels: number; curriculaReady: number; leavesDiscovered: number; cardsGenerated: number };
 }
