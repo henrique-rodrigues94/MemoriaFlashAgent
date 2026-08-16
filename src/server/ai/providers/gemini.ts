@@ -6,6 +6,7 @@ const FALLBACK_MODELS = ['gemini-2.5-flash-lite', 'gemini-3.5-flash'];
 const DEFAULT_MAX_TOKENS = 32768;
 const DEFAULT_INPUT_PRICE = 0;
 const DEFAULT_OUTPUT_PRICE = 0;
+const DEFAULT_RUN_BUDGET_USD = 0.50;
 let _client: GoogleGenAI | null = null;
 let runCostUsd = 0;
 
@@ -26,9 +27,13 @@ function getPrice(envName: string, fallback: number): number {
 function estimateCost(inputTokens: number, outputTokens: number): number {
   return (inputTokens / 1_000_000) * getPrice('GEMINI_INPUT_PRICE_PER_MILLION', DEFAULT_INPUT_PRICE) + (outputTokens / 1_000_000) * getPrice('GEMINI_OUTPUT_PRICE_PER_MILLION', DEFAULT_OUTPUT_PRICE);
 }
+function getRunBudgetUsd(): number {
+  const value = Number(process.env.GEMINI_MAX_COST_USD_PER_RUN || '');
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_RUN_BUDGET_USD;
+}
 function assertBudget(next: number): void {
-  const max = Number(process.env.GEMINI_MAX_COST_USD_PER_RUN || '0');
-  if (max > 0 && runCostUsd + next > max) throw new AIProviderError(`Gemini: teto de custo atingido (~US$ ${(runCostUsd + next).toFixed(5)} / US$ ${max.toFixed(2)})`, 'gemini', true);
+  const max = getRunBudgetUsd();
+  if (!Number.isFinite(next) || next < 0 || runCostUsd + next > max) throw new AIProviderError(`Gemini: teto de custo atingido (~US$ ${(runCostUsd + next).toFixed(5)} / US$ ${max.toFixed(2)})`, 'gemini', true);
 }
 function isNotFoundError(err: any): boolean {
   const message = err?.message || String(err);
