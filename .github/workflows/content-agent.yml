@@ -6,23 +6,23 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Modo do Agent'
+        description: 'Escolha o modo de funcionamento do Agent'
         required: true
         default: automatic
         type: choice
         options:
           - automatic
-          - correction
-          - update_requested
-          - discover_new
-          - cleanup
+          - 'Correção de cards'
+          - 'Atualizar conteúdos solicitados'
+          - 'Buscar novos conteúdos'
+          - 'Limpeza de cards'
       cleanup_apply:
-        description: 'No modo cleanup, realmente apagar candidatos (false = dry-run)'
+        description: 'Na limpeza, apagar realmente os candidatos? Desmarcado = apenas simulação (dry-run)'
         required: true
         default: false
         type: boolean
       discovery_enabled:
-        description: 'Permitir descoberta de novos conteúdos'
+        description: 'Permitir que o Agent pesquise e adicione novos conteúdos?'
         required: true
         default: false
         type: boolean
@@ -50,13 +50,22 @@ jobs:
       - run: npm test
       - run: npm run build
       - name: Executar Content Agent
-        run: node dist/content-agent.cjs
+        shell: bash
+        run: |
+          case "${{ inputs.mode }}" in
+            'Correção de cards') MODE='correction' ;;
+            'Atualizar conteúdos solicitados') MODE='update_requested' ;;
+            'Buscar novos conteúdos') MODE='discover_new' ;;
+            'Limpeza de cards') MODE='cleanup' ;;
+            *) MODE='automatic' ;;
+          esac
+          echo "Modo selecionado: $MODE"
+          CONTENT_AGENT_MODE="$MODE" node dist/content-agent.cjs
         env:
           NODE_ENV: production
           CONTENT_AGENT_PRODUCTION_STRICT: 'true'
-          CONTENT_AGENT_MODE: ${{ inputs.mode || secrets.CONTENT_AGENT_MODE || 'automatic' }}
           CONTENT_AGENT_DISCOVERY_ENABLED: ${{ inputs.discovery_enabled || secrets.CONTENT_AGENT_DISCOVERY_ENABLED || 'false' }}
-          CONTENT_AGENT_CLEANUP_ENABLED: ${{ inputs.mode == 'cleanup' || secrets.CONTENT_AGENT_CLEANUP_ENABLED || 'false' }}
+          CONTENT_AGENT_CLEANUP_ENABLED: ${{ inputs.mode == 'Limpeza de cards' || secrets.CONTENT_AGENT_CLEANUP_ENABLED || 'false' }}
           CONTENT_AGENT_CLEANUP_APPLY: ${{ inputs.cleanup_apply || 'false' }}
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
