@@ -1,0 +1,42 @@
+import { aiOrchestrator } from '../../ai';
+import { generateFlashcardsTask } from '../../ai/tasks/generateFlashcards';
+import { queryFeedback } from '../feedback/feedbackRepository';
+import { aggregateFeedbackByCard } from '../feedback/feedbackAnalyzer';
+import { loadBucket, replaceCardInBucket } from '../cards/cardBucketRepository';
+import { agentConfig } from '../config/agentConfig';
+import { RunTracker } from '../monitoring/runLogger';
+import type { CardFeedbackDoc, CardContentType, EducationLevel, BankCard } from '../../db/firestoreSchema';
+
+const ERROR_REASONS=new Set(['wrong_answer','bad_explanation','confusing_question','outdated_content','other']);
+
+function correctionPrompt(card:BankCard, feedback:CardFeedbackDoc[]):string{
+  const evidence=feedback.slice(0,8).map(f=>`- motivo=${f.reason||'other'} comentário=${f.comment||'sem comentário'}`).join('\n');
+  return `Corrija SOMENTE este flashcard. Não invente uma pergunta diferente do assunto. Preserve o objetivo pedagógico e o nível. Remova o erro apontado e produza uma nova versão clara e factual.\nCARD ATUAL:\nFrente: ${card.front}\nVerso: ${card.back}\nExplicação: ${card.explanation||''}\nTópico: ${card.topic}\nSubtópico: ${card.subtopic||''}\nFEEDBACK DOS USUÁRIOS:\n${evidence}`;
+}
+
+export async function correctCardsJob(tracker:RunTracker):Promise<void>{
+  const grouped=new Map<string,{feedback:CardFeedbackDoc[];subject:string;level:EducationLevel;topic:string;cardType:CardContentType;cardId:string}>();
+  for(const managed of agentConfig.managedSubjects){
+    for(const level of managed.levels){
+      if(tracker.elapsedMinutes()>=agentConfig.limits.maxRuntimeMinutes||tracker.aiCalls>=agentConfig.limits.maxAiCallsPerRun)return;
+      const feedback=(await queryFeedback({subject:managed.subject,level,limit:250})).filter(f=>f.rating==='negative'&&ERROR_REASONS.has(String(f.reason||'other')));
+      const byCard=aggregateFeedbackByCard(feedback).filter(x=>x.total>0).slice(0,agentConfig.limits.maxFeedbackCardsPerRun);
+      for(const aggregate of byCard){
+        const matching=feedback.filter(f=>f.cardId===aggregate.cardId);
+        const first=matching[0];if(!first)continue;
+        grouped.set(`${first.bucketId}:${aggregate.cardId}`,{feedback:matching,subject:managed.subject,level,topic:first.topic,cardType:first.cardType,cardId:aggregate.cardId});
+      }
+    }
+  }
+  for(const item of grouped.values()){
+    if(tracker.elapsedMinutes()>=agentConfig.limits.maxRuntimeMinutes||tracker.aiCalls>=agentConfig.limits.maxAiCallsPerRun)break;
+    try{
+      const bucket=await loadBucket(item.subject,item.topic,item.level,item.cardType);const card=bucket?.cards.find(c=>c.id===item.cardId);if(!card){tracker.log({action:'[correction] card não encontrado',subject:item.subject,topic:item.topic,detail:item.cardId});continue;}
+      const result=await generateFlashcardsTask({prompt:correctionPrompt(card,item.feedback),count:1,language:agentConfig.defaultLanguage,difficulty:card.difficulty,selectedTopics:[item.topic],educationLevel:item.level,sourceType:'subject'});
+      tracker.aiCalls++;
+      const replacement=result.cards?.find((c:any)=>c?.front&&c?.back);if(!replacement){tracker.errors++;continue;}
+      const ok=await replaceCardInBucket(item.subject,item.topic,item.level,item.cardType,item.cardId,{front:replacement.front,back:replacement.back,explanation:replacement.explanation||'',topic:item.topic,subtopic:card.subtopic,difficulty:replacement.difficulty||card.difficulty,qualityScore:replacement.qualityScore,accuracyScore:replacement.accuracyScore,relevanceScore:replacement.relevanceScore,groundingScore:replacement.groundingScore,agentVersion:agentConfig.version,promptVersion:agentConfig.promptVersion,model:result.providerUsed},`feedback: ${item.feedback.map(f=>f.reason||'other').join(',')}`);
+      if(ok){tracker.adaptationsApplied++;tracker.log({action:'[correction] card corrigido e substituído',subject:item.subject,topic:item.topic,detail:`card=${item.cardId}, feedback=${item.feedback.length}, provedor=${result.providerUsed}`);}else tracker.errors++;
+    }catch(err:any){tracker.errors++;tracker.log({action:'[correction] falha ao corrigir card',subject:item.subject,topic:item.topic,detail:err?.message||String(err)});}
+  }
+}
