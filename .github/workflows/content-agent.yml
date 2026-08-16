@@ -3,7 +3,29 @@ name: content-agent
 on:
   schedule:
     - cron: '7 3 * * 0'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Modo do Agent'
+        required: true
+        default: automatic
+        type: choice
+        options:
+          - automatic
+          - correction
+          - update_requested
+          - discover_new
+          - cleanup
+      cleanup_apply:
+        description: 'No modo cleanup, realmente apagar candidatos (false = dry-run)'
+        required: true
+        default: false
+        type: boolean
+      discovery_enabled:
+        description: 'Permitir descoberta de novos conteúdos'
+        required: true
+        default: false
+        type: boolean
 
 concurrency:
   group: content-agent-production
@@ -27,10 +49,15 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - run: node dist/content-agent.cjs
+      - name: Executar Content Agent
+        run: node dist/content-agent.cjs
         env:
           NODE_ENV: production
           CONTENT_AGENT_PRODUCTION_STRICT: 'true'
+          CONTENT_AGENT_MODE: ${{ inputs.mode || secrets.CONTENT_AGENT_MODE || 'automatic' }}
+          CONTENT_AGENT_DISCOVERY_ENABLED: ${{ inputs.discovery_enabled || secrets.CONTENT_AGENT_DISCOVERY_ENABLED || 'false' }}
+          CONTENT_AGENT_CLEANUP_ENABLED: ${{ inputs.mode == 'cleanup' || secrets.CONTENT_AGENT_CLEANUP_ENABLED || 'false' }}
+          CONTENT_AGENT_CLEANUP_APPLY: ${{ inputs.cleanup_apply || 'false' }}
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
           FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
@@ -78,3 +105,9 @@ jobs:
           CONTENT_AGENT_CARD_MIN_NEGATIVE_RATE: ${{ secrets.CONTENT_AGENT_CARD_MIN_NEGATIVE_RATE }}
           CONTENT_AGENT_MAX_REQUESTS: ${{ secrets.CONTENT_AGENT_MAX_REQUESTS }}
           CONTENT_AGENT_MAX_REQUEST_TOPICS: ${{ secrets.CONTENT_AGENT_MAX_REQUEST_TOPICS }}
+          CONTENT_AGENT_MAX_FEEDBACK_CARDS: ${{ secrets.CONTENT_AGENT_MAX_FEEDBACK_CARDS }}
+          CONTENT_AGENT_MAX_DISCOVERY_SUBJECTS: ${{ secrets.CONTENT_AGENT_MAX_DISCOVERY_SUBJECTS }}
+          CONTENT_AGENT_MAX_CLEANUP_CARDS: ${{ secrets.CONTENT_AGENT_MAX_CLEANUP_CARDS }}
+          CONTENT_AGENT_CLEANUP_STALE_DAYS: ${{ secrets.CONTENT_AGENT_CLEANUP_STALE_DAYS }}
+          CONTENT_AGENT_CLEANUP_MIN_KEEP: ${{ secrets.CONTENT_AGENT_CLEANUP_MIN_KEEP }}
+          CONTENT_AGENT_CLEANUP_USAGE_WINDOW_DAYS: ${{ secrets.CONTENT_AGENT_CLEANUP_USAGE_WINDOW_DAYS }}
