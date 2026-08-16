@@ -11,6 +11,13 @@ import type { ContentRequestDoc, EducationLevel } from '../../db/firestoreSchema
 function readSubject(data: ContentRequestDoc): string { return String(data.subject || data.requestedSubject || '').trim(); }
 function readRequestedAt(data: ContentRequestDoc): string { return String(data.requestedAt || data.createdAt || ''); }
 
+async function findCompletedSourceRequest(db: FirebaseFirestore.Firestore, sourceHash: string, currentRequestId: string): Promise<string | null> {
+  if (!sourceHash) return null;
+  const snap = await db.collection('contentRequests').where('source.sourceHash', '==', sourceHash).limit(20).get();
+  const duplicate = snap.docs.find((doc) => doc.id !== currentRequestId && doc.data().status === 'completed');
+  return duplicate?.id || null;
+}
+
 export async function processContentRequestsJob(tracker: RunTracker): Promise<void> {
   const db=getAdminFirestore();if(!db)return;
   const snap=await db.collection('contentRequests').where('status','==','pending').limit(agentConfig.limits.maxContentRequestsPerRun).get();
@@ -21,6 +28,15 @@ export async function processContentRequestsJob(tracker: RunTracker): Promise<vo
     if(tracker.aiCalls>=agentConfig.limits.maxAiCallsPerRun){tracker.stoppedReason=tracker.stoppedReason||'maxAiCallsPerRun atingido durante pedidos de usuários';break;}
     const data=request.data() as ContentRequestDoc;const subject=readSubject(data);
     if(!subject){await request.ref.set({status:'failed',updatedAt:new Date().toISOString(),error:'subject vazio'},{merge:true});continue;}
+
+    const sourceHash=String((data as any).source?.sourceHash||'').trim();
+    const duplicateRequestId=await findCompletedSourceRequest(db,sourceHash,request.id);
+    if(duplicateRequestId){
+      await request.ref.set({status:'completed',updatedAt:new Date().toISOString(),duplicateOf:duplicateRequestId,progress:{levels:0,curriculaReady:0,leavesDiscovered:0,cardsGenerated:0},error:null},{merge:true});
+      tracker.log({action:'[request] fonte já processada',subject,detail:`${request.id} reutilizou conteúdo de ${duplicateRequestId}${sourceHash?' [SHA-256]':''}`});
+      continue;
+    }
+
     const sourceContext=await loadDocumentSource(request.id);
     const hasDocumentSource=Boolean(sourceContext.trim());
     await request.ref.set({status:'processing',attempts:(data.attempts??0)+1,updatedAt:new Date().toISOString(),progress:{levels:0,curriculaReady:0,leavesDiscovered:0,cardsGenerated:0}},{merge:true});
