@@ -27,12 +27,16 @@ function logCurriculumTree(
 ) {
   const hierarchy = toHierarchy(data);
   const categories = hierarchy.categories ?? [];
-  const topicCount = categories.reduce((sum: number, category: any) => sum + (category.topics?.length ?? 0), 0);
+  const topicCount = categories.reduce(
+    (sum, category) => sum + (category.topics?.length ?? 0),
+    0,
+  );
   const subtopicCount = categories.reduce(
-    (sum: number, category: any) => sum + (category.topics ?? []).reduce(
-      (topicSum: number, topic: string) => topicSum + (category.subtopics?.[topic]?.length ?? 0),
+    (sum, category) => sum + (category.topics ?? []).reduce(
+      (topicSum, topic) => topicSum + (category.subtopics?.[topic]?.length ?? 0),
       0,
     ),
+    0,
   );
 
   tracker.log({
