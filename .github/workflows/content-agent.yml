@@ -1,16 +1,16 @@
 name: content-agent
 
 on:
-  # Execução semanal para manutenção e expansão do conteúdo.
-  # O processamento em lote reduz chamadas repetidas e favorece o cache do
-  # provedor. Pedidos urgentes podem ser processados manualmente.
   schedule:
     - cron: '7 3 * * 0'
   workflow_dispatch: {}
 
 concurrency:
-  group: content-agent
+  group: content-agent-production
   cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   run-agent:
@@ -18,38 +18,34 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
-
       - uses: actions/setup-node@v5
         with:
           node-version: '24'
           cache: npm
-
       - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm run typecheck
+      - run: npm test
       - run: npm run build
-
       - run: node dist/content-agent.cjs
         env:
+          NODE_ENV: production
+          CONTENT_AGENT_PRODUCTION_STRICT: 'true'
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
           FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
-
-          # Gemini: provedor principal. O modelo atual do MemoriaFlash é mantido.
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
           GEMINI_MAX_OUTPUT_TOKENS: ${{ secrets.GEMINI_MAX_OUTPUT_TOKENS }}
           GEMINI_MAX_COST_USD_PER_RUN: ${{ secrets.GEMINI_MAX_COST_USD_PER_RUN }}
           GEMINI_INPUT_PRICE_PER_MILLION: ${{ secrets.GEMINI_INPUT_PRICE_PER_MILLION }}
           GEMINI_OUTPUT_PRICE_PER_MILLION: ${{ secrets.GEMINI_OUTPUT_PRICE_PER_MILLION }}
-
-          # DeepSeek: fallback pago e econômico.
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
           DEEPSEEK_MAX_OUTPUT_TOKENS: ${{ secrets.DEEPSEEK_MAX_OUTPUT_TOKENS }}
           DEEPSEEK_THINKING: ${{ secrets.DEEPSEEK_THINKING }}
           DEEPSEEK_MAX_COST_USD_PER_RUN: ${{ secrets.DEEPSEEK_MAX_COST_USD_PER_RUN }}
           DEEPSEEK_TIMEOUT: ${{ secrets.DEEPSEEK_TIMEOUT }}
-
-          # OpenAI: último fallback, protegido por orçamento por execução.
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
           OPENAI_REASONING_EFFORT: ${{ secrets.OPENAI_REASONING_EFFORT }}
@@ -59,7 +55,6 @@ jobs:
           OPENAI_CACHED_INPUT_PRICE_PER_MILLION: ${{ secrets.OPENAI_CACHED_INPUT_PRICE_PER_MILLION }}
           OPENAI_OUTPUT_PRICE_PER_MILLION: ${{ secrets.OPENAI_OUTPUT_PRICE_PER_MILLION }}
           OPENAI_TIMEOUT: ${{ secrets.OPENAI_TIMEOUT }}
-
           CONTENT_AGENT_ENABLED: ${{ secrets.CONTENT_AGENT_ENABLED }}
           CONTENT_AGENT_TIMEZONE: 'America/Campo_Grande'
           CONTENT_AGENT_SUBJECTS: ${{ secrets.CONTENT_AGENT_SUBJECTS }}
@@ -71,6 +66,8 @@ jobs:
           CONTENT_AGENT_MAX_CARDS_PER_RUN: ${{ secrets.CONTENT_AGENT_MAX_CARDS_PER_RUN }}
           CONTENT_AGENT_MAX_AI_CALLS: ${{ secrets.CONTENT_AGENT_MAX_AI_CALLS }}
           CONTENT_AGENT_MAX_TOPICS: ${{ secrets.CONTENT_AGENT_MAX_TOPICS }}
+          CONTENT_AGENT_MAX_RETRIES: ${{ secrets.CONTENT_AGENT_MAX_RETRIES }}
+          CONTENT_AGENT_REQUEST_TIMEOUT_MIN: ${{ secrets.CONTENT_AGENT_REQUEST_TIMEOUT_MIN }}
           CONTENT_AGENT_BATCH_SIZE: ${{ secrets.CONTENT_AGENT_BATCH_SIZE }}
           CONTENT_AGENT_MAX_CARDS_REVIEWED: ${{ secrets.CONTENT_AGENT_MAX_CARDS_REVIEWED }}
           CONTENT_AGENT_CARD_MIN_FEEDBACK: ${{ secrets.CONTENT_AGENT_CARD_MIN_FEEDBACK }}
