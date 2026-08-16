@@ -8,10 +8,10 @@ on:
       mode:
         description: 'Escolha o modo de funcionamento do Agent'
         required: true
-        default: automatic
+        default: 'Automático'
         type: choice
         options:
-          - automatic
+          - 'Automático'
           - 'Correção de cards'
           - 'Atualizar conteúdos solicitados'
           - 'Buscar novos conteúdos'
