@@ -2,16 +2,19 @@
 //
 // Google Gemini — PROVEDOR PRINCIPAL
 // Estratégia de economia:
-// - mantém o modelo funcional do MemoriaFlash (`gemini-flash-latest`);
+// - usa um modelo estável da Gemini API por padrão;
+// - permite sobrescrever o modelo por GEMINI_MODEL;
 // - usa structured output nativo para evitar retries/parsing;
 // - limita a saída por chamada;
 // - registra tokens/custo estimado quando o provedor devolve usageMetadata;
 // - permite teto opcional de custo por execução para contas pagas;
-// - tarefas simples podem usar GEMINI_MODEL=gemini-2.5-flash-lite sem alterar código.
+// - se o modelo configurado retornar 404, tenta automaticamente o modelo
+//   estável de fallback uma única vez, evitando que um secret antigo quebre
+//   toda a execução do Agent.
 //
 // Variáveis:
 //   GEMINI_API_KEY                 obrigatória
-//   GEMINI_MODEL                   padrão gemini-flash-latest
+//   GEMINI_MODEL                   opcional; padrão gemini-2.5-flash
 //   GEMINI_MAX_OUTPUT_TOKENS       padrão 32768
 //   GEMINI_MAX_COST_USD_PER_RUN    padrão 0 = sem bloqueio
 //   GEMINI_INPUT_PRICE_PER_MILLION opcional, para estimativa de conta paga
@@ -20,7 +23,8 @@
 import { GoogleGenAI } from '@google/genai';
 import { AIProvider, AIProviderError, GenerateJSONParams } from '../types';
 
-const DEFAULT_MODEL = 'gemini-flash-latest';
+const DEFAULT_MODEL = 'gemini-2.5-flash';
+const FALLBACK_MODEL = 'gemini-2.5-flash';
 const DEFAULT_MAX_TOKENS = 32768;
 const DEFAULT_INPUT_PRICE = 0;
 const DEFAULT_OUTPUT_PRICE = 0;
@@ -71,7 +75,7 @@ function assertBudget(estimatedNextCost: number): void {
 function classifyError(err: any): AIProviderError {
   const msg = err?.message || String(err);
   const messageStatus = typeof msg === 'string'
-    ? Number(msg.match(/(?:"code"|\bstatus\b)\s*[:=]\s*(\d{3})/)?.[1]) || undefined
+    ? Number(msg.match(/(?:\"code\"|\bstatus\b)\s*[:=]\s*(\d{3})/)?.[1]) || undefined
     : undefined;
   const status = err?.status ?? err?.response?.status ?? err?.httpStatus ?? messageStatus;
   const isRate = status === 429 || /quota|rate.?limit|resource.?exhausted/i.test(msg);
@@ -83,6 +87,12 @@ function classifyError(err: any): AIProviderError {
   );
 }
 
+function isNotFoundError(err: any): boolean {
+  const message = err?.message || String(err);
+  const status = err?.status ?? err?.response?.status ?? err?.httpStatus;
+  return status === 404 || /(?:\b404\b|not found|not_found|does not exist)/i.test(message);
+}
+
 export const geminiProvider: AIProvider = {
   id: 'gemini',
   label: 'Google Gemini',
@@ -91,8 +101,9 @@ export const geminiProvider: AIProvider = {
 
   async generateJSON(params: GenerateJSONParams): Promise<unknown> {
     const ai = getClient();
+    const configuredModel = getModel();
 
-    try {
+    const generate = async (model: string) => {
       const config: Record<string, unknown> = {
         systemInstruction: params.systemPrompt,
         responseMimeType: 'application/json',
@@ -102,7 +113,7 @@ export const geminiProvider: AIProvider = {
       if (params.geminiSchema) config.responseSchema = params.geminiSchema;
 
       const response = await ai.models.generateContent({
-        model: getModel(),
+        model,
         contents: params.userPrompt,
         config,
       });
@@ -118,11 +129,28 @@ export const geminiProvider: AIProvider = {
         const cost = estimateCost(input, output);
         assertBudget(cost);
         runCostUsd += cost;
-        console.info(`[gemini] model=${getModel()} tokens=${input}in/${output}out cache=${cached} cost≈$${cost.toFixed(6)} accumulated≈$${runCostUsd.toFixed(6)}`);
+        console.info(`[gemini] model=${model} tokens=${input}in/${output}out cache=${cached} cost≈$${cost.toFixed(6)} accumulated≈$${runCostUsd.toFixed(6)}`);
+      } else {
+        console.info(`[gemini] model=${model} resposta recebida sem usageMetadata`);
       }
 
       return JSON.parse(text);
+    };
+
+    try {
+      return await generate(configuredModel);
     } catch (err: any) {
+      // Um secret GEMINI_MODEL antigo/inexistente não deve derrubar a execução
+      // inteira. Repetimos somente 404 com um modelo estável conhecido.
+      if (configuredModel !== FALLBACK_MODEL && isNotFoundError(err)) {
+        console.warn(`[gemini] modelo "${configuredModel}" retornou 404; tentando fallback "${FALLBACK_MODEL}".`);
+        try {
+          return await generate(FALLBACK_MODEL);
+        } catch (fallbackErr: any) {
+          throw classifyError(fallbackErr);
+        }
+      }
+
       if (err instanceof AIProviderError) throw err;
       throw classifyError(err);
     }
