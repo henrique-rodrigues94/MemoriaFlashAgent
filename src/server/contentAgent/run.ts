@@ -1,14 +1,17 @@
-// 📁 flashmind-ai/src/server/contentAgent/run.ts
+// Execução standalone do Content Agent.
 //
-// Execução standalone do Content Agent — independente do server.ts principal.
-// Uso:
-//   npx tsx src/server/contentAgent/run.ts
-//
-// Pensado para ser chamado por um scheduler externo (Cloud Scheduler, GitHub
-// Actions cron, etc.) — ver docs/content-agent-deployment.md.
-
+// Em produção, CONTENT_AGENT_PRODUCTION_STRICT=true obriga as credenciais
+// essenciais e os limites de segurança antes de qualquer escrita no Firebase.
 import 'dotenv/config';
+import { assertProductionEnvironment } from './productionGate';
 import { runContentAgent } from './agent/orchestrator';
+
+try {
+  assertProductionEnvironment();
+} catch (err) {
+  console.error('[agent] Production gate bloqueou a execução:', err);
+  process.exit(78);
+}
 
 runContentAgent()
   .then(summary => {
