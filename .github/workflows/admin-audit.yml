@@ -37,13 +37,25 @@ jobs:
         run: npm test
 
       - name: Executar auditoria completa do Firestore
-        run: npm run admin:audit > admin-audit-report.json
+        run: npm run --silent admin:audit > admin-audit-report.json
         env:
           NODE_ENV: production
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
           FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
           FIRESTORE_FREE_STORAGE_BYTES: ${{ secrets.FIRESTORE_FREE_STORAGE_BYTES || '1073741824' }}
+
+      - name: Validar relatório JSON
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const raw = fs.readFileSync('admin-audit-report.json', 'utf8').trim();
+          if (!raw) throw new Error('O relatório da auditoria ficou vazio.');
+          const r = JSON.parse(raw);
+          if (!r || typeof r !== 'object') throw new Error('O relatório da auditoria não é um objeto JSON válido.');
+          console.log('Relatório JSON válido.');
+          NODE
 
       - name: Mostrar resumo
         shell: bash
