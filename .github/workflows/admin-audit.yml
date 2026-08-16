@@ -37,7 +37,7 @@ jobs:
         run: npm test
 
       - name: Executar auditoria completa do Firestore
-        run: npm run --silent admin:audit > admin-audit-report.json
+        run: npm run --silent admin:audit > admin-audit-raw.txt
         env:
           NODE_ENV: production
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
@@ -45,16 +45,34 @@ jobs:
           FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
           FIRESTORE_FREE_STORAGE_BYTES: ${{ secrets.FIRESTORE_FREE_STORAGE_BYTES || '1073741824' }}
 
-      - name: Validar relatório JSON
+      - name: Extrair e validar relatório JSON
         shell: bash
         run: |
           node - <<'NODE'
           const fs = require('fs');
-          const raw = fs.readFileSync('admin-audit-report.json', 'utf8').trim();
-          if (!raw) throw new Error('O relatório da auditoria ficou vazio.');
-          const r = JSON.parse(raw);
-          if (!r || typeof r !== 'object') throw new Error('O relatório da auditoria não é um objeto JSON válido.');
-          console.log('Relatório JSON válido.');
+          const raw = fs.readFileSync('admin-audit-raw.txt', 'utf8').trim();
+          if (!raw) throw new Error('A auditoria não produziu nenhuma saída.');
+
+          const start = raw.indexOf('{');
+          const end = raw.lastIndexOf('}');
+          if (start < 0 || end < start) {
+            throw new Error('A auditoria não produziu um objeto JSON. Saída recebida:\n' + raw.slice(0, 1000));
+          }
+
+          const jsonText = raw.slice(start, end + 1);
+          let report;
+          try {
+            report = JSON.parse(jsonText);
+          } catch (error) {
+            throw new Error(`Não foi possível interpretar o JSON da auditoria: ${error.message}`);
+          }
+
+          if (!report || typeof report !== 'object' || Array.isArray(report)) {
+            throw new Error('O relatório da auditoria não é um objeto JSON válido.');
+          }
+
+          fs.writeFileSync('admin-audit-report.json', JSON.stringify(report, null, 2) + '\n');
+          console.log('Relatório JSON extraído e validado com sucesso.');
           NODE
 
       - name: Mostrar resumo
