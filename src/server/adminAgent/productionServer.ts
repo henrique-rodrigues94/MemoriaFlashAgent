@@ -1,6 +1,7 @@
 import http from 'http';
 import { runDatabaseAudit } from '../contentAgent/admin/databaseAudit';
-import { stageImport, loadStagedPackage, cancelStagedImport } from '../contentAgent/importer/completoMflash';
+import { cancelStagedImport } from '../contentAgent/importer/completoMflash';
+import { stageMflashProduction, loadMflashProduction } from '../contentAgent/importer/staging';
 import { publishStagedImportProduction, rollbackImportJob } from '../contentAgent/importer/productionImporter';
 
 const PORT = Number(process.env.ADMIN_DASHBOARD_PORT || 8787);
@@ -30,11 +31,11 @@ export function startProductionAdminDashboard(): http.Server {
     try {
       if (url.pathname === '/health') return send(res, 200, { ok: true, service: 'memoriaflash-admin-production', at: new Date().toISOString() });
       if (url.pathname === '/api/audit' && req.method === 'GET') return send(res, 200, await runDatabaseAudit());
-      if (url.pathname === '/api/import/stage' && req.method === 'POST') { const raw = await readBody(req); if (!raw.trim()) return send(res, 400, { error: 'Arquivo vazio.' }); return send(res, 201, await stageImport(raw)); }
+      if (url.pathname === '/api/import/stage' && req.method === 'POST') { const raw = await readBody(req); if (!raw.trim()) return send(res, 400, { error: 'Arquivo vazio.' }); return send(res, 201, await stageMflashProduction(raw)); }
       const m = url.pathname.match(/^\/api\/import\/([^/]+)(?:\/(publish|cancel|rollback))?$/);
       if (m) {
         const jobId = decodeURIComponent(m[1]); const action = m[2];
-        if (req.method === 'GET' && !action) { const { job } = await loadStagedPackage(jobId); return send(res, 200, job); }
+        if (req.method === 'GET' && !action) { const { job } = await loadMflashProduction(jobId); return send(res, 200, job); }
         if (req.method === 'POST' && action === 'publish') return send(res, 200, await publishStagedImportProduction(jobId));
         if (req.method === 'POST' && action === 'cancel') { await cancelStagedImport(jobId); return send(res, 200, { ok: true, jobId, status: 'cancelled' }); }
         if (req.method === 'POST' && action === 'rollback') { await rollbackImportJob(jobId); return send(res, 200, { ok: true, jobId, status: 'rolled_back' }); }
