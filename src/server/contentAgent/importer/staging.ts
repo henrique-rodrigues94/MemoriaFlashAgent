@@ -1,5 +1,6 @@
 import { getAdminFirestore } from '../../firebaseAdmin';
 import { buildImportPlan, estimateStorageAfterImport, validateMflashPackage } from './completoMflash';
+import { analyzeImportQuality } from './importQuality';
 import { createHash } from 'crypto';
 
 const CHUNK_CHARS = 800_000;
@@ -26,6 +27,10 @@ export async function stageMflashProduction(rawText: string) {
   const packageHash = hash(rawText);
   const plan = await buildImportPlan(validation.package, packageHash);
   plan.issues.push(...validation.issues);
+  const quality = analyzeImportQuality(validation.package);
+  if (quality.exactDuplicateCards > 0) plan.issues.push({ severity: 'warning', code: 'QUALITY_EXACT_DUPLICATES', path: '$', message: `${quality.exactDuplicateCards} card(s) duplicado(s) foram encontrados na auditoria de qualidade.` });
+  if (quality.similarDuplicateCandidates.length > 0) plan.issues.push({ severity: 'warning', code: 'QUALITY_SIMILAR_DUPLICATES', path: '$', message: `${quality.similarDuplicateCandidates.length} possível(is) duplicação(ões) por similaridade foram detectadas. A publicação não é bloqueada automaticamente.` });
+  if (quality.subtopicsWithoutCards.length > 0) plan.issues.push({ severity: 'warning', code: 'QUALITY_EMPTY_SUBTOPICS', path: '$', message: `${quality.subtopicsWithoutCards.length} subtópico(s) não possuem cards.` });
   const storage = await estimateStorageAfterImport(plan);
   const maxStorage = Number(process.env.CONTENT_IMPORT_MAX_STORAGE_PERCENT || 95);
   if (storage.afterPercent > maxStorage) plan.issues.push({ severity: 'error', code: 'STORAGE_LIMIT', path: '$', message: `Importação levaria o uso estimado para ${storage.afterPercent}%, acima do limite de segurança ${maxStorage}%.` });
@@ -38,12 +43,12 @@ export async function stageMflashProduction(rawText: string) {
   const db = getAdminFirestore(); if (!db) throw new Error('Firebase Admin não configurado.');
   const jobId = hash(`${packageHash}|${Date.now()}`).slice(0, 24);
   const jobRef = db.collection('contentImportJobs').doc(jobId);
-  await jobRef.set({ jobId, status: 'staged', package: 'completo', packageHash, manifest: plan.manifest, stats: plan.stats, issues: plan.issues, storage, quota: { estimatedWrites, dailyFreeReference: dailyWrites, maxWritesPerRun }, chunkCount, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+  await jobRef.set({ jobId, status: 'staged', package: 'completo', packageHash, manifest: plan.manifest, stats: plan.stats, issues: plan.issues, quality, storage, quota: { estimatedWrites, dailyFreeReference: dailyWrites, maxWritesPerRun }, chunkCount, importStrategy: process.env.CONTENT_IMPORT_STRATEGY || 'sync', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   for (let i = 0; i < chunkCount; i++) {
     const data = rawText.slice(i * CHUNK_CHARS, (i + 1) * CHUNK_CHARS);
     await jobRef.collection('chunks').doc(String(i).padStart(6, '0')).set({ index: i, encoding: 'utf8', data });
   }
-  return { jobId, plan, storage, quota: { estimatedWrites, dailyFreeReference: dailyWrites, maxWritesPerRun } };
+  return { jobId, plan, quality, storage, quota: { estimatedWrites, dailyFreeReference: dailyWrites, maxWritesPerRun } };
 }
 
 export async function loadMflashProduction(jobId: string): Promise<{ job: any; rawText: string }> {
@@ -51,6 +56,8 @@ export async function loadMflashProduction(jobId: string): Promise<{ job: any; r
   const ref = db.collection('contentImportJobs').doc(jobId); const snap = await ref.get(); if (!snap.exists) throw new Error('Importação não encontrada.');
   const chunks = await ref.collection('chunks').orderBy('index').get();
   const rawText = chunks.docs.map(d => String(d.data().data || '')).join('');
+  const expectedHash = String(snap.data()?.packageHash || '');
+  if (expectedHash && hash(rawText) !== expectedHash) throw new Error('Integridade do staging inválida: SHA-256 do arquivo não confere.');
   return { job: snap.data(), rawText };
 }
 
