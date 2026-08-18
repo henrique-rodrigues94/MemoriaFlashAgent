@@ -60,6 +60,28 @@ Fluxo seguro padrão:
 
 Assim, um ciclo semanal normal não sai criando cards para matérias que ninguém pediu.
 
+## 6. content_importer — novo
+
+Recebe o pacote editorial único `completo.mflash` e publica conteúdo no Firebase sem IA durante a importação.
+
+Fluxo:
+
+`arquivo → validação → hash/deduplicação → comparação → controle de armazenamento → staging → dry-run → aprovação → lotes → pós-validação → histórico`
+
+Regras:
+
+- o pacote deve conter FUNDAMENTAL, MÉDIO, FACULDADE, CONCURSO e TÉCNICO;
+- uma matéria só aparece nos níveis em que realmente se aplica;
+- o pacote é a fonte editorial, enquanto uso/feedback/progresso continuam operacionais no Firebase;
+- o importador nunca apaga cards automaticamente;
+- conflitos críticos bloqueiam publicação;
+- IDs e `contentHash` tornam a publicação idempotente;
+- o tamanho do bucket é verificado antes da escrita;
+- o staging fica em `contentImportJobs` com chunks para suportar arquivos grandes;
+- a publicação pode ser executada pelo dashboard ou pelo worker com `CONTENT_IMPORT_JOB_ID`.
+
+Documentação completa: `docs/CONTENT_IMPORTER.md`.
+
 ## Execução manual
 
-O workflow `.github/workflows/content-agent.yml` possui `workflow_dispatch` e permite selecionar o modo. Use `cleanup` primeiro em dry-run; somente depois de conferir os logs habilite a exclusão real.
+O workflow `.github/workflows/content-agent.yml` possui `workflow_dispatch` e permite selecionar o modo. Use `cleanup` primeiro em dry-run; somente depois de conferir os logs habilite a exclusão real. Para o novo alimentador, coloque o pacote em staging pelo dashboard e publique com o job aprovado.
