@@ -51,6 +51,26 @@ describe('normalizeMflashForImport', () => {
     expect(subtopic.cards[0].id).toBe('pt-001');
   });
 
+  it('preserves flat cards stored directly in levelsData', () => {
+    const result = normalizeMflashForImport({
+      manifest: { format: 'memoriaflash', formatVersion: '1.0', package: 'nivel', contentVersion: '1.0.0', levels: ['medio'], statistics: { cards: 2 } },
+      levelsData: [{
+        id: 'medio',
+        name: 'MÉDIO',
+        subject: 'Português',
+        cards: [
+          { id: 'pt-001', topic: 'Morfologia', subtopic: 'Substantivo', question: 'O que é substantivo?', answer: 'Palavra que nomeia seres.' },
+          { id: 'pt-002', topic: 'Morfologia', subtopic: 'Adjetivo', question: 'O que é adjetivo?', answer: 'Palavra que caracteriza um substantivo.' },
+        ],
+      }],
+    });
+    const level = result.levels[0];
+    const subtopics = level.subjects[0].curricula[0].topics.flatMap(topic => topic.subtopics);
+    expect(subtopics).toHaveLength(2);
+    expect(subtopics.reduce((sum, subtopic) => sum + subtopic.cards.length, 0)).toBe(2);
+    expect(subtopics.map(subtopic => subtopic.cards[0].id)).toEqual(['pt-001', 'pt-002']);
+  });
+
   it('keeps an already valid level package compatible', () => {
     const result = normalizeMflashForImport({
       manifest: { format: 'memoriaflash', formatVersion: '1.0', package: 'nivel', contentVersion: '1.0.0', language: 'pt-BR', levels: ['fundamental'] },
