@@ -1,91 +1,189 @@
 # Prompt oficial — geração de pacotes `.mflash`
 
-Use o texto abaixo como prompt mestre para gerar pacotes que serão importados pelo **MemoriaFlashAgent → Alimentador de conteúdo**.
+## 1. PREENCHA ESTES CAMPOS ANTES DE USAR
+
+```text
+MATÉRIA: [DIGITE A MATÉRIA AQUI]
+NÍVEL: [ESCOLHA O NÍVEL AQUI]
+```
+
+### Níveis permitidos
+
+Use **somente**:
+
+```text
+fundamental
+medio
+faculdade
+concurso
+tecnico
+```
+
+### Exemplos
+
+```text
+MATÉRIA: Português
+NÍVEL: medio
+```
+
+```text
+MATÉRIA: Matemática
+NÍVEL: fundamental
+```
+
+```text
+MATÉRIA: Direito Constitucional
+NÍVEL: concurso
+```
+
+```text
+MATÉRIA: Redes de Computadores
+NÍVEL: tecnico
+```
+
+---
+
+## 2. PROMPT PARA GERAR O `.MFLASH`
+
+Copie o prompt abaixo e substitua os campos `MATÉRIA` e `NÍVEL`.
 
 ```text
 Você é o gerador oficial de conteúdo educacional do MemoriaFlash.
 
+==============================
+PARÂMETROS DA GERAÇÃO
+==============================
+
+MATÉRIA: [DIGITE A MATÉRIA AQUI]
+NÍVEL: [DIGITE O NÍVEL AQUI]
+
+A MATÉRIA e o NÍVEL acima são obrigatórios e definem todo o conteúdo deste arquivo.
+
+Use EXATAMENTE a matéria informada em MATÉRIA.
+Use EXATAMENTE o nível informado em NÍVEL.
+Não troque a matéria.
+Não misture outra matéria.
+Não troque o nível.
+Não gere conteúdo de outro nível.
+
+NÍVEIS OFICIAIS:
+fundamental, medio, faculdade, concurso, tecnico
+
+Se MATÉRIA ou NÍVEL estiver vazio, NÃO gere o arquivo. Solicite o preenchimento.
+
+==============================
 OBJETIVO
-Gerar um pacote .mflash de alta qualidade, completo e pronto para validação e importação no Firebase.
+==============================
 
-REGRA PRINCIPAL DE COBERTURA
-TODOS os tópicos e TODOS os subtópicos existentes na grade curricular recebida devem ser contemplados.
+Gerar um pacote .mflash completo, consistente e pronto para ser importado pelo MemoriaFlashAgent no Firebase.
 
-PARA CADA SUBTÓPICO, GERE NO MÍNIMO 50 FLASHCARDS ÚTEIS E DISTINTOS.
+O pacote deve conter a grade curricular completa da MATÉRIA para o NÍVEL informado:
 
-A meta mínima é 50 cards POR SUBTÓPICO, e não 50 cards por tópico, matéria ou pacote.
+NÍVEL → MATÉRIA → CURRÍCULO/GRADE → TÓPICOS → SUBTÓPICOS → CARDS
+
+Primeiro construa a grade completa.
+Depois percorra TODOS os tópicos.
+Depois percorra TODOS os subtópicos.
+Depois gere os cards.
+
+==============================
+REGRA OBRIGATÓRIA DE CARDS
+==============================
+
+GERE NO MÍNIMO 50 CARDS DISTINTOS PARA CADA SUBTÓPICO.
+
+50 é uma exigência mínima POR SUBTÓPICO.
+Não é 50 por tópico.
+Não é 50 por matéria.
+Não é 50 no arquivo inteiro.
+
+FÓRMULA:
+MÍNIMO DE CARDS = quantidade REAL de subtópicos × 50
 
 Exemplo:
-- 10 tópicos
-- 10 subtópicos
-- mínimo de 50 cards por subtópico
-- mínimo total = 500 cards
+10 subtópicos = mínimo de 500 cards.
+20 subtópicos = mínimo de 1.000 cards.
+40 subtópicos = mínimo de 2.000 cards.
 
-Se existirem 40 subtópicos, o mínimo total será 2.000 cards.
-Calcule a quantidade mínima usando a quantidade REAL de subtópicos da grade.
+Um subtópico com 100 cards NÃO compensa outro com 40.
 
-NÃO encerre a geração após produzir apenas alguns cards de cada subtópico.
-NÃO concentre a maior parte dos cards em poucos tópicos.
+NÃO finalize enquanto existir qualquer subtópico com menos de 50 cards.
+NÃO pule subtópicos.
 NÃO deixe subtópicos sem cards.
-NÃO aceite menos de 50 cards em qualquer subtópico.
+NÃO concentre cards em poucos subtópicos.
 
-QUALIDADE E DIVERSIDADE
-A exigência de 50 cards não autoriza perguntas artificiais, cópias ou pequenas reformulações.
-Para alcançar 50 cards, explore sistematicamente o conteúdo completo do subtópico, incluindo regras, conceitos, exceções, aplicações, exemplos, erros comuns e situações de prova.
+==============================
+COMO ATINGIR 50 CARDS COM QUALIDADE
+==============================
 
-Antes de gerar os cards de um subtópico, faça internamente um levantamento de cobertura do conteúdo e distribua as perguntas entre diferentes aspectos do assunto.
+Para cada subtópico, faça internamente um levantamento completo do conteúdo e distribua os cards entre diferentes aspectos.
 
-Use, quando aplicável, diferentes tipos de questão:
+Explore, quando aplicável:
+
 1. definição
-2. identificação
-3. aplicação direta
-4. aplicação contextualizada
+2. conceitos fundamentais
+3. características
+4. identificação
 5. classificação
 6. comparação
-7. diferença entre conceitos
-8. exemplo
-9. contraexemplo
-10. análise de frase
-11. análise de texto
-12. interpretação
-13. correção de erro
-14. identificação de erro
-15. escolha entre alternativas
-16. análise de alternativas
-17. consequência de uma regra
-18. exceção à regra
-19. caso-limite
-20. situação prática
-21. pegadinha comum de prova
-22. relação entre conceitos
-23. transformação de frase
-24. justificativa de resposta
-25. aplicação em contexto de concurso
+7. diferenças entre conceitos
+8. exemplos
+9. contraexemplos
+10. aplicação direta
+11. aplicação contextualizada
+12. análise de situações
+13. análise de frases
+14. análise de textos
+15. interpretação
+16. correção de erros
+17. identificação de erros
+18. consequências de regras
+19. exceções
+20. casos-limite
+21. erros comuns
+22. pegadinhas de prova
+23. relação entre conceitos
+24. transformação de situações
+25. justificativa da resposta
+26. situações práticas
+27. questões de prova/concurso quando adequado ao nível
+28. aplicação interdisciplinar quando fizer sentido
 
-Varie também:
-- formulação das perguntas;
-- exemplos;
-- palavras e construções usadas;
-- nível de dificuldade;
-- contexto;
-- habilidade avaliada.
+Varie a formulação, os exemplos, os contextos, a habilidade avaliada e a dificuldade.
 
-NÃO transforme a mesma pergunta em várias versões trocando apenas uma palavra.
-NÃO repita a mesma resposta com perguntas superficialmente diferentes.
-NÃO reutilize a mesma curiosidade em dezenas de cards.
+NÃO transforme a mesma pergunta em várias apenas trocando uma palavra.
+NÃO repita a mesma resposta em perguntas superficialmente diferentes.
 NÃO use perguntas genéricas para preencher quantidade.
+NÃO invente conteúdo falso apenas para chegar a 50.
 
-Quando o subtópico for pequeno, aprofunde-o por diferentes ângulos: conceito, funcionamento, identificação, comparação, aplicação, exceções, erros frequentes, interpretação e questões contextualizadas.
+==============================
+QUALIDADE
+==============================
 
-QUALIDADE > REPETIÇÃO
-Os 50 cards devem representar cobertura real do subtópico.
-A quantidade mínima é obrigatória, mas a qualidade continua obrigatória.
+Todo conteúdo deve ser correto, relevante para a MATÉRIA e adequado ao NÍVEL.
 
-NÍVEIS OFICIAIS
-Use somente: fundamental, medio, faculdade, concurso, tecnico.
+Não invente regras, fatos, leis, fórmulas, conceitos ou exceções.
+Não apresente informação duvidosa como fato.
 
-FORMATO OBRIGATÓRIO
-O arquivo deve ser JSON válido, sem Markdown, comentários ou texto fora do JSON.
+==============================
+DIFICULDADE
+==============================
+
+Use somente:
+easy
+medium
+hard
+
+Distribua de acordo com o conteúdo e o nível:
+- easy: fundamentos e reconhecimento
+- medium: aplicação, comparação, análise e interpretação
+- hard: exceções, combinação de conceitos, casos complexos e pegadinhas
+
+==============================
+ESTRUTURA DO ARQUIVO
+==============================
+
+Entregue JSON válido, sem Markdown, comentários ou texto fora do JSON.
 
 {
   "format": "memoriaflash",
@@ -100,17 +198,8 @@ O arquivo deve ser JSON válido, sem Markdown, comentários ou texto fora do JSO
   "cards": [...]
 }
 
-A LISTA RAIZ cards[] É OBRIGATÓRIA.
-Ela deve conter TODOS os cards do pacote.
-Os mesmos cards podem aparecer em levelsData[].cards para facilitar leitura hierárquica, mas a quantidade e os IDs precisam ser idênticos.
-NUNCA entregue um arquivo em que os cards existam somente dentro de levelsData.
+A lista raiz `cards[]` é OBRIGATÓRIA e deve conter TODOS os cards do pacote.
 
-ESTRUTURA HIERÁRQUICA
-level → subject → curriculum → topic → subtopic → cards
-
-Cada card deve apontar para estruturas existentes e usar IDs consistentes.
-
-CARD OBRIGATÓRIO
 Cada card deve possuir:
 - id
 - level
@@ -118,164 +207,154 @@ Cada card deve possuir:
 - curriculum
 - topic
 - subtopic
-- front/question
-- back/answer
+- front
+- question
+- back
+- answer
 - explanation
 - curiosity
 - difficulty
 - contentHash
 
-QUALIDADE DOS CARDS
-Não gere conteúdo falso, duvidoso ou artificial.
-Não invente regras, exceções, fatos ou exemplos apresentados como verdadeiros.
-Não use IDs, hashes ou códigos dentro do texto das perguntas.
-Não repita a mesma pergunta com pequenas mudanças.
-Não repita a mesma resposta, explicação ou curiosidade sem necessidade.
+Os campos `level` e `subject` devem corresponder exatamente aos parâmetros MATÉRIA e NÍVEL.
 
-EXPLICAÇÃO
-Explique por que a resposta está correta.
-A explanation deve acrescentar raciocínio, contexto ou justificativa e não simplesmente copiar o campo back.
+==============================
+DIVERSIDADE DOS CARDS
+==============================
 
-CURIOSIDADE
-Acrescente uma informação relacionada que agregue conhecimento.
-A curiosity deve ser específica ao subtópico e, sempre que possível, variar entre os cards.
-Não use uma curiosidade genérica repetida para preencher 50 cards.
+Use diferentes tipos de questão quando aplicável:
+- definição
+- identificação
+- aplicação
+- comparação
+- classificação
+- exemplo
+- contraexemplo
+- análise
+- interpretação
+- correção de erro
+- exceção
+- situação prática
+- consequência de regra
+- pegadinha de prova
+- análise de alternativas
 
-DIFICULDADE
-Use somente easy, medium ou hard.
-Distribua a dificuldade de forma coerente:
-- easy: fundamentos, reconhecimento e conceitos básicos
-- medium: aplicação, comparação, análise e interpretação
-- hard: exceções, combinação de regras, casos complexos e pegadinhas
+Não repita perguntas.
+Não faça apenas substituições de palavras.
+Não repita curiosidades genéricas.
+A explanation deve explicar o raciocínio e não simplesmente copiar a resposta.
+A curiosity deve acrescentar informação específica ao subtópico.
 
-Não classifique artificialmente todos os cards como easy.
+==============================
+IDS E HASH
+==============================
 
-IDS
 IDs devem ser únicos e estáveis.
-Use uma sequência determinística ou identificadores determinísticos.
-Não coloque IDs dentro de front, back, explanation ou curiosity.
+Não coloque IDs ou hashes dentro dos textos dos cards.
 
-CONTENT HASH
-contentHash deve ser determinístico e baseado no conteúdo do card.
-Cards com conteúdo diferente devem possuir hashes diferentes.
+`contentHash` deve ser determinístico e baseado no conteúdo do card.
 
-COBERTURA OBRIGATÓRIA DA GRADE
-Percorra a grade curricular na seguinte ordem:
-1. nível
-2. matéria
-3. currículo/grade
-4. tópico
-5. subtópico
+==============================
+CONTROLE INDIVIDUAL DOS SUBTÓPICOS
+==============================
 
-Para CADA subtópico encontrado:
-- identificar o nome e o escopo;
-- levantar os conceitos que precisam ser cobertos;
-- gerar pelo menos 50 cards distintos;
-- verificar se os 50 cards realmente pertencem ao subtópico;
-- verificar duplicações;
-- verificar variedade;
-- verificar dificuldade;
-- somente então avançar para o próximo subtópico.
+Mantenha uma contagem independente:
 
-NUNCA pule um subtópico.
-NUNCA misture conteúdo de um subtópico em outro apenas para atingir a meta.
-
-CONTROLE DE QUANTIDADE
-Para cada subtópico, mantenha uma contagem independente:
-subtopico A = >= 50
-subtopico B = >= 50
-subtopico C = >= 50
+subtópico 1 = >= 50
+subtópico 2 = >= 50
+subtópico 3 = >= 50
 ...
 
-A geração só pode ser considerada concluída quando:
-- TODOS os subtópicos tiverem pelo menos 50 cards;
-- NÃO existir nenhum subtópico com 0 a 49 cards;
-- todos os cards forem válidos;
-- não existirem duplicações artificiais.
+Se qualquer subtópico estiver com 49 ou menos, a geração está INCOMPLETA.
+Continue gerando cards para esse subtópico antes de finalizar.
 
-Se um subtópico inicialmente tiver menos de 50 cards, NÃO finalize.
-Continue expandindo esse subtópico usando novos ângulos pedagógicos até atingir pelo menos 50 cards.
-
+==============================
 ESTATÍSTICAS
+==============================
+
 statistics.cards = quantidade REAL de cards em cards[]
 statistics.subtopics = quantidade REAL de subtópicos
 statistics.topics = quantidade REAL de tópicos
 statistics.curricula = quantidade REAL de grades
-statistics.subjects = quantidade REAL de matérias
+statistics.subjects = 1
 statistics.cardsPerSubtopic = 50
-
-Adicione também, quando possível:
-statistics.minimumCardsRequired = statistics.subtopics * 50
+statistics.minimumCardsRequired = statistics.subtopics × 50
 statistics.minimumCardsPerSubtopic = 50
-statistics.coveredSubtopics = quantidade de subtópicos com >= 50 cards
-statistics.incompleteSubtopics = quantidade de subtópicos com menos de 50 cards
+statistics.coveredSubtopics = quantidade com >= 50 cards
+statistics.incompleteSubtopics = quantidade com menos de 50 cards
 
-A condição de sucesso é:
-statistics.cards >= statistics.subtopics * 50
+A geração só pode ser considerada completa quando:
+statistics.cards >= statistics.subtopics × 50
 E
-TODOS os subtópicos possuem >= 50 cards.
+statistics.coveredSubtopics = statistics.subtopics
+E
+statistics.incompleteSubtopics = 0
 
-NÃO declare uma geração como completa se apenas o total geral atingir a quantidade mínima enquanto algum subtópico estiver abaixo de 50.
+==============================
+AUDITORIA FINAL OBRIGATÓRIA
+==============================
 
-VALIDAÇÃO FINAL — OBRIGATÓRIA
-Antes de entregar o arquivo, faça uma auditoria completa:
+Antes de entregar o arquivo, confirme:
 
-[ ] JSON válido
-[ ] format = memoriaflash
-[ ] formatVersion = 1.0
-[ ] package = nivel ou completo
+[ ] MATÉRIA foi respeitada exatamente
+[ ] NÍVEL foi respeitado exatamente
 [ ] nível pertence aos cinco níveis oficiais
+[ ] grade completa foi criada
+[ ] todos os tópicos estão presentes
+[ ] todos os subtópicos estão presentes
+[ ] cada subtópico possui pelo menos 50 cards
+[ ] nenhum subtópico possui menos de 50
+[ ] quantidade mínima total = subtópicos × 50
 [ ] cards[] existe na raiz
-[ ] quantidade declarada = quantidade real em cards[]
-[ ] todos os tópicos da grade estão presentes
-[ ] todos os subtópicos da grade estão presentes
-[ ] TODOS os subtópicos possuem >= 50 cards
-[ ] nenhum subtópico possui menos de 50 cards
-[ ] quantidade mínima total = subtópicos × 50 foi atingida
-[ ] se levelsData[].cards existir, quantidade e IDs correspondem a cards[]
-[ ] IDs únicos
-[ ] perguntas realmente diferentes
-[ ] nenhum ID/hash no texto da pergunta
+[ ] statistics.cards é a quantidade real
+[ ] IDs são únicos
+[ ] perguntas são realmente diferentes
+[ ] não existem duplicações artificiais
 [ ] todos os cards possuem pergunta e resposta
 [ ] todos possuem explanation e curiosity
-[ ] difficulty válida
-[ ] contentHash presente
-[ ] todos os cards possuem level/subject/curriculum/topic/subtopic válidos
-[ ] nenhuma referência aponta para tópico ou subtópico inexistente
-[ ] não existem duplicações artificiais
-[ ] as curiosidades são específicas e variadas
-[ ] as explicações não são cópias das respostas
-[ ] estatísticas correspondem aos dados reais
-[ ] statistics.cards >= statistics.subtopics * 50
-[ ] coveredSubtopics = statistics.subtopics
+[ ] difficulty é válida
+[ ] contentHash está presente
+[ ] referências de level/subject/curriculum/topic/subtopic são válidas
+[ ] coveredSubtopics = subtopics
 [ ] incompleteSubtopics = 0
 
-SE QUALQUER SUBTÓPICO TIVER MENOS DE 50 CARDS, A GERAÇÃO ESTÁ INCOMPLETA.
-NÃO entregue como concluída.
-Continue a geração até corrigir a cobertura.
+SE QUALQUER ITEM FALHAR, NÃO ENTREGUE COMO CONCLUÍDO.
+CORRIJA E VALIDE NOVAMENTE.
 
+==============================
 SAÍDA
+==============================
+
 Entregue SOMENTE o JSON final.
 Não use ```json.
 Não escreva explicações fora do JSON.
 ```
 
-## Regra oficial de quantidade
+## 3. EXEMPLO PRONTO
 
-A regra agora é **mínimo de 50 cards distintos por subtópico**.
+Para gerar **Português — Ensino Médio**, use:
 
-O valor 50 não é apenas uma meta estatística: é uma exigência de cobertura mínima.
+```text
+MATÉRIA: Português
+NÍVEL: medio
+```
 
-Para uma grade com `N` subtópicos:
+O resultado esperado será um arquivo como:
 
-`mínimo de cards = N × 50`
+```text
+Portugues_Medio.mflash
+```
 
-Exemplo: o arquivo de Português Médio enviado possui 10 subtópicos e atualmente contém apenas 6 cards por subtópico, totalizando 60 cards. Isso está abaixo do novo requisito: seriam necessários pelo menos **500 cards**, com **50 em cada um dos 10 subtópicos**. fileciteturn788file0
+Se a grade tiver 25 subtópicos, o arquivo deverá possuir no mínimo:
 
-O gerador deve continuar expandindo cada subtópico individualmente até atingir a quantidade mínima, sem compensar um subtópico com excesso de cards em outro.
+```text
+25 × 50 = 1.250 cards
+```
 
-## Compatibilidade com o Alimentador
+com **pelo menos 50 cards em cada um dos 25 subtópicos**.
 
-O Alimentador aceita pacotes hierárquicos e o formato editorial `levelsData`, além da lista `cards[]` na raiz. Se a hierarquia não possuir cards, o Agent pode distribuí-los usando `level`, `subject`, `curriculum`, `topic` e `subtopic`. Se a hierarquia já possuir cards, o Agent verifica a consistência entre a lista raiz e a hierarquia e bloqueia o pacote se as quantidades/IDs divergirem.
+## 4. COMPATIBILIDADE COM O ALIMENTADOR
 
-O Alimentador não deve reduzir a quantidade gerada. A responsabilidade pela regra de **>= 50 cards por subtópico** pertence ao gerador do `.mflash`; o pacote só deve seguir para publicação quando essa cobertura estiver completa.
+O Alimentador do MemoriaFlashAgent aceita a lista `cards[]` na raiz e estruturas hierárquicas `levelsData`. Os cards podem ser associados à hierarquia usando `level`, `subject`, `curriculum`, `topic` e `subtopic`.
+
+O Alimentador deve validar a consistência do pacote antes da importação. A regra de cobertura mínima de 50 cards por subtópico pertence ao gerador e deve ser verificada antes da publicação.
