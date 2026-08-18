@@ -4,18 +4,35 @@ import path from 'path';
 import { stageImport, publishStagedImport } from './completoMflash';
 import { normalizeMflashForImport } from './normalizeMflashForImport';
 
+const DEFAULT_PACKAGE_DIR = path.resolve(process.env.CONTENT_PACKAGES_DIR || path.join(process.cwd(), 'content-packages'));
+
+function resolvePackageFile(input: string): string {
+  const supplied = input.trim();
+  const looksLikeRepositoryPath = supplied.replace(/\\/g, '/').toLowerCase().startsWith('content-packages/');
+  const fileName = looksLikeRepositoryPath ? supplied.replace(/\\/g, '/').slice('content-packages/'.length) : supplied;
+
+  if (!fileName || path.basename(fileName) !== fileName || fileName.includes('..') || !fileName.toLowerCase().endsWith('.mflash')) {
+    throw new Error('Informe somente o nome de um arquivo .mflash da pasta content-packages/, por exemplo: Portugues_Fundamental.mflash');
+  }
+
+  return path.join(DEFAULT_PACKAGE_DIR, fileName);
+}
+
 async function main() {
   const suppliedPath = process.env.CONTENT_IMPORT_MFLASH_PATH || process.argv[2];
-  if (!suppliedPath) throw new Error('CONTENT_IMPORT_MFLASH_PATH é obrigatório no CI. Informe o caminho de um arquivo .mflash versionado no repositório.');
+  if (!suppliedPath) throw new Error('Informe o nome do arquivo .mflash. A pasta content-packages/ é incluída automaticamente.');
 
-  const file = path.resolve(suppliedPath);
+  const file = resolvePackageFile(suppliedPath);
   const stat = await fs.stat(file).catch(() => null);
-  if (!stat?.isFile() || !file.toLowerCase().endsWith('.mflash')) {
-    throw new Error(`Arquivo .mflash não encontrado: ${file}`);
+  if (!stat?.isFile()) {
+    const available = await fs.readdir(DEFAULT_PACKAGE_DIR, { withFileTypes: true }).catch(() => []);
+    const packages = available.filter(entry => entry.isFile() && entry.name.toLowerCase().endsWith('.mflash')).map(entry => entry.name).sort();
+    const hint = packages.length ? ` Arquivos disponíveis: ${packages.join(', ')}` : ' Nenhum .mflash foi encontrado em content-packages/.';
+    throw new Error(`Arquivo .mflash não encontrado em content-packages/: ${path.basename(file)}.${hint}`);
   }
 
   const raw = await fs.readFile(file, 'utf8');
-  console.log(`=== MEMORIAFLASH — ALIMENTADOR CI ===\nArquivo: ${file}`);
+  console.log(`=== MEMORIAFLASH — ALIMENTADOR CI ===\nPasta padrão: ${DEFAULT_PACKAGE_DIR}\nArquivo selecionado: ${path.basename(file)}`);
   console.log('[0/3] Normalizando formato .mflash...');
 
   let normalizedRaw: string;
