@@ -16,7 +16,17 @@ on:
           - 'Atualizar conteúdos solicitados'
           - 'Buscar novos conteúdos'
           - 'Limpeza de cards'
-          - 'Alimentador completo.mflash'
+          - 'Alimentador de conteúdo'
+      mflash_path:
+        description: 'Caminho do .mflash dentro do repositório. Usado apenas no Alimentador de conteúdo.'
+        required: false
+        default: ''
+        type: string
+      import_auto_publish:
+        description: 'No Alimentador, publicar no Firebase após validação e staging?'
+        required: true
+        default: false
+        type: boolean
       cleanup_apply:
         description: 'Na limpeza, apagar realmente os candidatos? Desmarcado = apenas simulação (dry-run)'
         required: true
@@ -50,7 +60,25 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+      - name: Executar Alimentador de conteúdo
+        if: ${{ inputs.mode == 'Alimentador de conteúdo' }}
+        shell: bash
+        run: npm run content:import:ci
+        env:
+          NODE_ENV: production
+          CONTENT_AGENT_PRODUCTION_STRICT: 'true'
+          CONTENT_IMPORT_MFLASH_PATH: ${{ inputs.mflash_path }}
+          CONTENT_IMPORT_AUTO_PUBLISH: ${{ inputs.import_auto_publish }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
+          FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
+          CONTENT_IMPORT_MAX_BYTES: ${{ secrets.CONTENT_IMPORT_MAX_BYTES || '52428800' }}
+          CONTENT_IMPORT_MAX_STORAGE_PERCENT: ${{ secrets.CONTENT_IMPORT_MAX_STORAGE_PERCENT || '95' }}
+          FIRESTORE_FREE_STORAGE_BYTES: ${{ secrets.FIRESTORE_FREE_STORAGE_BYTES || '1073741824' }}
+
       - name: Executar Content Agent
+        if: ${{ inputs.mode != 'Alimentador de conteúdo' }}
         shell: bash
         run: |
           case "${{ inputs.mode }}" in
@@ -58,7 +86,6 @@ jobs:
             'Atualizar conteúdos solicitados') MODE='update_requested' ;;
             'Buscar novos conteúdos') MODE='discover_new' ;;
             'Limpeza de cards') MODE='cleanup' ;;
-            'Alimentador completo.mflash') MODE='content_importer' ;;
             *) MODE='automatic' ;;
           esac
           echo "Modo selecionado: $MODE"
@@ -122,7 +149,3 @@ jobs:
           CONTENT_AGENT_CLEANUP_STALE_DAYS: ${{ secrets.CONTENT_AGENT_CLEANUP_STALE_DAYS }}
           CONTENT_AGENT_CLEANUP_MIN_KEEP: ${{ secrets.CONTENT_AGENT_CLEANUP_MIN_KEEP }}
           CONTENT_AGENT_CLEANUP_USAGE_WINDOW_DAYS: ${{ secrets.CONTENT_AGENT_CLEANUP_USAGE_WINDOW_DAYS }}
-          CONTENT_IMPORT_JOB_ID: ${{ secrets.CONTENT_IMPORT_JOB_ID }}
-          CONTENT_IMPORT_MAX_BYTES: ${{ secrets.CONTENT_IMPORT_MAX_BYTES || '52428800' }}
-          CONTENT_IMPORT_MAX_STORAGE_PERCENT: ${{ secrets.CONTENT_IMPORT_MAX_STORAGE_PERCENT || '95' }}
-          FIRESTORE_FREE_STORAGE_BYTES: ${{ secrets.FIRESTORE_FREE_STORAGE_BYTES || '1073741824' }}
