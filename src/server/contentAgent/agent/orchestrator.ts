@@ -6,6 +6,7 @@ import { correctCardsJob } from '../jobs/correctCardsJob';
 import { discoverNewContentJob } from '../jobs/discoverNewContentJob';
 import { cleanupCardsJob } from '../jobs/cleanupCardsJob';
 import { updateRequestedContentJob } from '../jobs/updateRequestedContentJob';
+import { publishStagedImport } from '../importer/completoMflash';
 
 const LOCK_ID='global';const LOCK_COLLECTION='agentLocks';const LOCK_TTL_MS=35*60*1000;
 async function acquireAgentLease(runId:string):Promise<boolean>{const db=getAdminFirestore();if(!db){if(process.env.CONTENT_AGENT_PRODUCTION_STRICT==='true')throw new Error('Firebase Admin é obrigatório em produção; não foi possível adquirir o lease do Agent.');return true;}const ref=db.collection(LOCK_COLLECTION).doc(LOCK_ID);const now=Date.now();return db.runTransaction(async transaction=>{const snap=await transaction.get(ref);const current=snap.exists?snap.data()||{}:{};const currentExpiry=Number(current.expiresAt||0);const currentRunId=String(current.runId||'');if(currentRunId&&currentExpiry>now&&currentRunId!==runId)return false;transaction.set(ref,{runId,status:'running',mode:agentConfig.mode,acquiredAt:new Date(now).toISOString(),heartbeatAt:new Date(now).toISOString(),expiresAt:now+LOCK_TTL_MS},{merge:true});return true;});}
@@ -15,6 +16,12 @@ export async function runContentAgent():Promise<AgentRunSummary>{
   const tracker=new RunTracker();const mode=normalizeAgentMode(process.env.CONTENT_AGENT_MODE||agentConfig.mode);const acquired=await acquireAgentLease(tracker.runId);if(!acquired){tracker.stoppedReason='Outro worker possui o lease global do Agent.';return tracker.toSummary('aborted');}
   tracker.log({action:'[agent] iniciando execução',detail:`${tracker.runId} | modo=${mode}`});
   try{
+    if(mode==='content_importer'){
+      const jobId=String(process.env.CONTENT_IMPORT_JOB_ID||'').trim();
+      if(!jobId) throw new Error('CONTENT_IMPORT_JOB_ID é obrigatório no modo content_importer. Use o dashboard para validar e colocar o pacote em staging antes de publicar.');
+      tracker.log({action:'[mode:content_importer] publicando completo.mflash staged',detail:`job=${jobId}`});
+      await publishStagedImport(jobId);
+    }
     if(mode==='correction'||mode==='automatic'){tracker.log({action:'[mode:correction] corrigindo somente cards com feedback de erro'});await correctCardsJob(tracker);}
     if(mode==='update_requested'||mode==='automatic'){tracker.log({action:'[mode:update_requested] completando somente matérias/assuntos solicitados e faltantes'});await updateRequestedContentJob(tracker);}
     if(mode==='discover_new'){tracker.log({action:'[mode:discover_new] pesquisando candidatos antes de gerar qualquer card'});await discoverNewContentJob(tracker);}
