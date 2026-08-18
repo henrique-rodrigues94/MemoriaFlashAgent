@@ -2,6 +2,7 @@ import 'dotenv/config';
 import fs from 'fs/promises';
 import path from 'path';
 import { stageImport, publishStagedImport } from './completoMflash';
+import { normalizeMflashForImport } from './normalizeMflashForImport';
 
 async function main() {
   const suppliedPath = process.env.CONTENT_IMPORT_MFLASH_PATH || process.argv[2];
@@ -15,9 +16,20 @@ async function main() {
 
   const raw = await fs.readFile(file, 'utf8');
   console.log(`=== MEMORIAFLASH — ALIMENTADOR CI ===\nArquivo: ${file}`);
-  console.log('[1/3] Validando e colocando em staging...');
+  console.log('[0/3] Normalizando formato .mflash...');
 
-  const staged = await stageImport(raw);
+  let normalizedRaw: string;
+  try {
+    const parsed = JSON.parse(raw);
+    const normalized = normalizeMflashForImport(parsed);
+    normalizedRaw = JSON.stringify(normalized);
+    console.log(`Formato normalizado: ${normalized.manifest.package} | níveis: ${normalized.manifest.levels.join(', ')}`);
+  } catch (error) {
+    throw new Error(`Falha ao normalizar o .mflash: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  console.log('[1/3] Validando e colocando em staging...');
+  const staged = await stageImport(normalizedRaw);
   console.table({
     tipo: staged.plan.manifest.package,
     niveis: staged.plan.stats.levels,
