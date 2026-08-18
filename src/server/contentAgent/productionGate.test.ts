@@ -22,4 +22,19 @@ describe('production gate', () => {
     expect(validateProductionEnvironment(env).every(check => check.ok)).toBe(true);
     expect(() => assertProductionEnvironment(env)).not.toThrow();
   });
+
+  it('accepts strict production content_importer without any AI provider', () => {
+    const env = {
+      CONTENT_AGENT_PRODUCTION_STRICT: 'true',
+      CONTENT_AGENT_ENABLED: 'true',
+      CONTENT_AGENT_MODE: 'content_importer',
+      FIREBASE_PROJECT_ID: 'project',
+      FIREBASE_CLIENT_EMAIL: 'agent@example.com',
+      FIREBASE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',
+      CONTENT_IMPORT_MAX_BYTES: '52428800',
+      CONTENT_IMPORT_MAX_STORAGE_PERCENT: '95',
+    } as NodeJS.ProcessEnv;
+    expect(validateProductionEnvironment(env).every(check => check.ok)).toBe(true);
+    expect(() => assertProductionEnvironment(env)).not.toThrow();
+  });
 });
