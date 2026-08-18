@@ -1,98 +1,49 @@
 import { MflashPackage, MflashLevelInput, MflashManifest, MflashSubjectInput, MflashCurriculumInput, MflashTopicInput, MflashSubtopicInput, MflashCardInput, OFFICIAL_LEVELS } from './completoMflash';
 
-function text(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function slug(value: string): string {
-  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-}
-
+function text(value: unknown): string { return typeof value === 'string' ? value.trim() : ''; }
+function slug(value: string): string { return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''); }
 function levelId(value: unknown): string {
   const normalized = slug(text(value));
   const aliases: Record<string, string> = {
     fundamental: 'fundamental', 'ensino-fundamental': 'fundamental',
     medio: 'medio', 'ensino-medio': 'medio', 'ensino-médio': 'medio',
-    faculdade: 'faculdade', superior: 'faculdade', concurso: 'concurso',
+    faculdade: 'faculdade', superior: 'faculdade,', concurso: 'concurso',
     tecnico: 'tecnico', 'ensino-tecnico': 'tecnico',
   };
   return aliases[normalized] || normalized;
 }
 
-function normalizeCard(raw: any): MflashCardInput {
-  return {
-    id: text(raw?.id || raw?.cardId || raw?.codigo) || undefined,
-    question: text(raw?.question || raw?.pergunta || raw?.front) || undefined,
-    answer: text(raw?.answer || raw?.resposta || raw?.back) || undefined,
-    explanation: text(raw?.explanation || raw?.explicacao || raw?.explicação) || undefined,
-    curiosity: text(raw?.curiosity || raw?.curiosidade) || undefined,
-    difficulty: text(raw?.difficulty || raw?.dificuldade) || undefined,
-    tags: Array.isArray(raw?.tags) ? raw.tags : undefined,
-    curriculumPriority: Number.isFinite(Number(raw?.curriculumPriority || raw?.prioridade)) ? Number(raw?.curriculumPriority || raw?.prioridade) : undefined,
-    source: raw?.source,
-  };
-}
+function normalizeCard(raw: any): MflashCardInput { return {
+  id: text(raw?.id || raw?.cardId || raw?.codigo) || undefined,
+  question: text(raw?.question || raw?.pergunta || raw?.front) || undefined,
+  answer: text(raw?.answer || raw?.resposta || raw?.back) || undefined,
+  explanation: text(raw?.explanation || raw?.explicacao || raw?.explicação) || undefined,
+  curiosity: text(raw?.curiosity || raw?.curiosidade) || undefined,
+  difficulty: text(raw?.difficulty || raw?.dificuldade) || undefined,
+  tags: Array.isArray(raw?.tags) ? raw.tags : undefined,
+  curriculumPriority: Number.isFinite(Number(raw?.curriculumPriority || raw?.prioridade)) ? Number(raw?.curriculumPriority || raw?.prioridade) : undefined,
+  source: raw?.source,
+}; }
 
 function normalizeSubtopic(raw: any): MflashSubtopicInput {
   const source = raw?.cards || raw?.cardsData || raw?.flashcards || [];
-  return {
-    id: text(raw?.id || raw?.subtopicId || raw?.codigo) || undefined,
-    name: text(raw?.name || raw?.nome || raw?.subtopic || raw?.subtopico || raw?.subtópico) || 'Subtópico',
-    cards: Array.isArray(source) ? source.map(normalizeCard) : [],
-  };
+  return { id: text(raw?.id || raw?.subtopicId || raw?.codigo) || undefined, name: text(raw?.name || raw?.nome || raw?.subtopic || raw?.subtopico || raw?.subtópico) || 'Subtópico', cards: Array.isArray(source) ? source.map(normalizeCard) : [] };
 }
-
 function normalizeTopic(raw: any): MflashTopicInput {
   const source = raw?.subtopics || raw?.subtopicos || raw?.subtópicos || [];
-  if (Array.isArray(source) && source.length) {
-    return {
-      id: text(raw?.id || raw?.topicId || raw?.codigo) || undefined,
-      name: text(raw?.name || raw?.nome || raw?.topic || raw?.topico || raw?.tópico) || 'Tópico',
-      subtopics: source.map(normalizeSubtopic),
-    };
-  }
+  if (Array.isArray(source) && source.length) return { id: text(raw?.id || raw?.topicId || raw?.codigo) || undefined, name: text(raw?.name || raw?.nome || raw?.topic || raw?.topico || raw?.tópico) || 'Tópico', subtopics: source.map(normalizeSubtopic) };
   const cards = raw?.cards || raw?.cardsData || raw?.flashcards || [];
-  return {
-    id: text(raw?.id || raw?.topicId || raw?.codigo) || undefined,
-    name: text(raw?.name || raw?.nome || raw?.topic || raw?.topico || raw?.tópico) || 'Tópico',
-    subtopics: [{ name: 'Conteúdo geral', cards: Array.isArray(cards) ? cards.map(normalizeCard) : [] }],
-  };
+  return { id: text(raw?.id || raw?.topicId || raw?.codigo) || undefined, name: text(raw?.name || raw?.nome || raw?.topic || raw?.topico || raw?.tópico) || 'Tópico', subtopics: [{ name: 'Conteúdo geral', cards: Array.isArray(cards) ? cards.map(normalizeCard) : [] }] };
 }
-
 function normalizeCurriculum(raw: any): MflashCurriculumInput {
   const source = raw?.topics || raw?.topicos || raw?.tópicos || [];
-  return {
-    id: text(raw?.id || raw?.curriculumId || raw?.codigo) || undefined,
-    name: text(raw?.name || raw?.nome || raw?.title) || 'Grade completa',
-    topics: Array.isArray(source) ? source.map(normalizeTopic) : [],
-  };
+  return { id: text(raw?.id || raw?.curriculumId || raw?.codigo) || undefined, name: text(raw?.name || raw?.nome || raw?.title) || 'Grade completa', topics: Array.isArray(source) ? source.map(normalizeTopic) : [] };
 }
-
 function normalizeSubject(raw: any): MflashSubjectInput {
   const source = raw?.curricula || raw?.grades || raw?.gradesCurriculares || raw?.curriculos || [];
-  if (Array.isArray(source) && source.length) {
-    return {
-      id: text(raw?.id || raw?.subjectId || raw?.codigo) || undefined,
-      name: text(raw?.name || raw?.nome || raw?.subject || raw?.materia || raw?.matéria) || 'Português',
-      curricula: source.map(normalizeCurriculum),
-    };
-  }
+  if (Array.isArray(source) && source.length) return { id: text(raw?.id || raw?.subjectId || raw?.codigo) || undefined, name: text(raw?.name || raw?.nome || raw?.subject || raw?.materia || raw?.matéria) || 'Português', curricula: source.map(normalizeCurriculum) };
   const topics = raw?.topics || raw?.topicos || raw?.tópicos || [];
-  return {
-    id: text(raw?.id || raw?.subjectId || raw?.codigo) || undefined,
-    name: text(raw?.name || raw?.nome || raw?.subject || raw?.materia || raw?.matéria) || 'Português',
-    curricula: [{ name: 'Grade completa', topics: Array.isArray(topics) ? topics.map(normalizeTopic) : [] }],
-  };
-}
-
-function normalizeLevel(raw: any): MflashLevelInput {
-  const id = levelId(raw?.id || raw?.level || raw?.nivel || raw?.nível || raw?.educationLevel || raw?.name);
-  const source = raw?.subjects || raw?.materias || raw?.matérias || [];
-  return {
-    id: id as MflashLevelInput['id'],
-    name: text(raw?.name || raw?.nome) || id.toUpperCase(),
-    subjects: Array.isArray(source) ? source.map(normalizeSubject) : [],
-  };
+  return { id: text(raw?.id || raw?.subjectId || raw?.codigo) || undefined, name: text(raw?.name || raw?.nome || raw?.subject || raw?.materia || raw?.matéria) || 'Português', curricula: [{ name: 'Grade completa', topics: Array.isArray(topics) ? topics.map(normalizeTopic) : [] }] };
 }
 
 function buildFlatLegacyLevel(root: any, id: string): MflashLevelInput {
@@ -109,13 +60,24 @@ function buildFlatLegacyLevel(root: any, id: string): MflashLevelInput {
       const topic = text(raw?.topic || raw?.topico || raw?.tópico) || 'Conteúdo geral';
       const subtopic = text(raw?.subtopic || raw?.subtopico || raw?.subtópico) || 'Conteúdo geral';
       if (!topicMap.has(topic)) topicMap.set(topic, new Map());
-      const subtopics = topicMap.get(topic)!;
-      if (!subtopics.has(subtopic)) subtopics.set(subtopic, []);
-      subtopics.get(subtopic)!.push(normalizeCard(raw));
+      const subs = topicMap.get(topic)!;
+      if (!subs.has(subtopic)) subs.set(subtopic, []);
+      subs.get(subtopic)!.push(normalizeCard(raw));
     }
-    topics = [...topicMap.entries()].map(([topic, subtopics]) => ({ name: topic, subtopics: [...subtopics.entries()].map(([subtopic, cards]) => ({ name: subtopic, cards })) }));
+    topics = [...topicMap.entries()].map(([topic, subs]) => ({ name: topic, subtopics: [...subs.entries()].map(([subtopic, cards]) => ({ name: subtopic, cards })) }));
   }
-  return { id: id as MflashLevelInput['id'], name: text(root?.levelName || root?.nivelNome || root?.nívelNome) || id.toUpperCase(), subjects: [{ name: subjectName, curricula: [{ name: 'Grade completa', topics }] }] };
+  return { id, name: text(root?.levelName || root?.nivelNome || root?.nívelNome) || id.toUpperCase(), subjects: [{ name: subjectName, curricula: [{ name: 'Grade completa', topics }] }] };
+}
+
+function normalizeLevel(raw: any, root: any): MflashLevelInput {
+  // Compatibilidade com manifest.levels: ["fundamental"] e levels: ["FUNDAMENTAL"].
+  if (typeof raw === 'string') {
+    const id = levelId(raw);
+    return buildFlatLegacyLevel(root, id);
+  }
+  const id = levelId(raw?.id || raw?.level || raw?.nivel || raw?.nível || raw?.educationLevel || raw?.name);
+  const source = raw?.subjects || raw?.materias || raw?.matérias || [];
+  return { id: id as MflashLevelInput['id'], name: text(raw?.name || raw?.nome) || id.toUpperCase(), subjects: Array.isArray(source) ? source.map(normalizeSubject) : [] };
 }
 
 function buildManifest(root: any, packageType: 'completo' | 'nivel', levels: string[]): MflashManifest {
@@ -134,25 +96,20 @@ function buildManifest(root: any, packageType: 'completo' | 'nivel', levels: str
 export function normalizeMflashForImport(input: unknown): MflashPackage {
   const root = input as any;
   if (!root || typeof root !== 'object') throw new Error('Arquivo .mflash precisa conter um objeto JSON.');
-  const declaredLevels = Array.isArray(root.levels) ? root.levels.map(normalizeLevel) : [];
+  const rawLevels = Array.isArray(root.levels) ? root.levels : [];
+  let levels: MflashLevelInput[] = rawLevels.map((raw: any) => normalizeLevel(raw, root));
   const declaredLevel = levelId(root?.manifest?.levels?.[0] || root?.level || root?.nivel || root?.nível || root?.educationLevel);
-  let levels: MflashLevelInput[] = declaredLevels;
-  if (!levels.length && OFFICIAL_LEVELS.includes(declaredLevel as MflashLevelInput['id'])) levels = [buildFlatLegacyLevel(root, declaredLevel)];
+  if (!levels.length && OFFICIAL_LEVELS.includes(declaredLevel as any)) levels = [buildFlatLegacyLevel(root, declaredLevel)];
   if (!levels.length) throw new Error(`Não foi possível identificar o nível do arquivo .mflash. Níveis permitidos: ${OFFICIAL_LEVELS.join(', ')}.`);
-
-  const validLevels: MflashLevelInput[] = levels.filter(level => OFFICIAL_LEVELS.includes(level.id));
+  const validLevels = levels.filter(level => OFFICIAL_LEVELS.includes(level.id));
   if (validLevels.length !== levels.length) throw new Error(`Nível inválido no .mflash. Permitidos: ${OFFICIAL_LEVELS.join(', ')}.`);
-
-  const unique: MflashLevelInput[] = [...new Map(validLevels.map(level => [level.id, level] as const)).values()];
+  const unique = [...new Map(validLevels.map((level: MflashLevelInput) => [level.id, level])).values()];
   const packageType: 'completo' | 'nivel' = unique.length === 1 ? 'nivel' : 'completo';
   const manifest = buildManifest(root, packageType, packageType === 'nivel' ? [unique[0].id] : [...OFFICIAL_LEVELS]);
-
   if (packageType === 'completo') {
-    const byId = new Map<string, MflashLevelInput>(unique.map(level => [level.id, level]));
-    levels = OFFICIAL_LEVELS.map(id => byId.get(id) || ({ id, name: id.toUpperCase(), subjects: [] } as MflashLevelInput));
-  } else {
-    levels = [unique[0]];
-  }
+    const byId = new Map<string, MflashLevelInput>(unique.map((level: MflashLevelInput) => [level.id, level]));
+    levels = OFFICIAL_LEVELS.map(id => byId.get(id) || { id, name: id.toUpperCase(), subjects: [] });
+  } else levels = [unique[0]];
   return { manifest, levels };
 }
 
