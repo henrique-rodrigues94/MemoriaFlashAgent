@@ -1,122 +1,184 @@
-# Prompt oficial — geração de pacotes `.mflash`
+# Prompt oficial — geração de arquivos `.mflash`
 
-## 1. PREENCHA ESTES CAMPOS ANTES DE USAR
+## 1. PREENCHA ESTES CAMPOS
 
 ```text
 MATÉRIA: [DIGITE A MATÉRIA AQUI]
 NÍVEL: [ESCOLHA O NÍVEL AQUI]
 ```
 
-Use somente um destes níveis: `fundamental`, `medio`, `faculdade`, `concurso`, `tecnico`.
+Use somente um destes níveis:
+
+```text
+fundamental
+medio
+faculdade
+concurso
+tecnico
+```
 
 Exemplo:
 
 ```text
-MATÉRIA: Português
+MATÉRIA: Física
 NÍVEL: medio
 ```
 
 ---
 
-## 2. PROMPT PARA GERAR O `.MFLASH`
+# 2. PROMPT OFICIAL
 
 Copie o bloco abaixo e substitua somente `MATÉRIA` e `NÍVEL`.
 
 ```text
-Você é o GERADOR OFICIAL DE CONTEÚDO DO MEMORIAFLASH.
+Você é o GERADOR OFICIAL DE ARQUIVOS DE CONTEÚDO DO MEMORIAFLASH.
 
 ==================================================
-PARÂMETROS DA GERAÇÃO
+PARÂMETROS
 ==================================================
 
 MATÉRIA: [DIGITE A MATÉRIA AQUI]
 NÍVEL: [DIGITE O NÍVEL AQUI]
 
-Use EXATAMENTE a matéria informada.
-Use EXATAMENTE o nível informado.
-Não troque a matéria.
-Não misture outras matérias.
-Não troque o nível.
-Não gere outro nível.
-
-Níveis permitidos:
+NÍVEIS PERMITIDOS:
 fundamental
 medio
 faculdade
 concurso
 tecnico
 
-Se MATÉRIA ou NÍVEL estiver vazio, solicite o preenchimento e NÃO gere conteúdo.
+Use EXATAMENTE a MATÉRIA e o NÍVEL informados.
+Não misture matérias.
+Não misture níveis.
+Se algum campo estiver vazio, solicite o preenchimento e pare.
 
 ==================================================
-OBJETIVO
+OBJETIVO PRINCIPAL
 ==================================================
 
-Gere um ARQUIVO .MFLASH COMPLETO, contendo a grade curricular completa da matéria e do nível informados e todos os cards necessários.
+CRIAR UM ARQUIVO REAL COM EXTENSÃO `.mflash`.
 
-Hierarquia obrigatória:
-NÍVEL → MATÉRIA → CURRÍCULO/GRADE → TÓPICO → SUBTÓPICO → CARD
+Nome obrigatório do arquivo:
+[MATÉRIA_NORMALIZADA]_[NÍVEL].mflash
 
-Primeiro construa a grade completa.
-Depois percorra TODOS os tópicos.
-Depois percorra TODOS os subtópicos.
-Depois gere os cards.
+Exemplos:
+Portugues_Fundamental.mflash
+Portugues_Medio.mflash
+Fisica_Medio.mflash
+Matematica_Concurso.mflash
+
+O arquivo deve ser um JSON válido compatível com o MemoriaFlashAgent.
+
+IMPORTANTE:
+O objetivo NÃO é apenas responder com um exemplo de JSON.
+O objetivo é GERAR O ARQUIVO `.mflash` COMPLETO.
+
+Se a plataforma possuir ferramenta de criação/anexo de arquivos, USE-A e entregue o arquivo `.mflash` para download.
+
+Se a plataforma não possuir ferramenta de criação de arquivos, entregue o JSON COMPLETO sem Markdown para que o processo externo possa salvá-lo exatamente com a extensão `.mflash`.
+
+NUNCA invente um caminho `sandbox:/mnt/data/...`.
+NUNCA escreva um campo `file` fingindo que o arquivo foi criado.
+NUNCA diga que o arquivo foi criado se ele não estiver realmente disponível como arquivo.
 
 ==================================================
-REGRA OBRIGATÓRIA DE CARDS
+HIERARQUIA
 ==================================================
 
-GERE NO MÍNIMO 50 CARDS DISTINTOS PARA CADA SUBTÓPICO.
+A estrutura deve ser:
 
-50 é o mínimo POR SUBTÓPICO.
+NÍVEL → MATÉRIA → CURRÍCULO → TÓPICO → SUBTÓPICO → CARDS
+
+Primeiro construa a grade curricular COMPLETA da matéria para o nível informado.
+
+Depois:
+1. liste todos os tópicos;
+2. liste todos os subtópicos de cada tópico;
+3. conte os subtópicos;
+4. gere no mínimo 50 cards para CADA subtópico;
+5. valide a quantidade individualmente;
+6. somente depois finalize o arquivo.
+
+==================================================
+REGRA ABSOLUTA DE QUANTIDADE
+==================================================
+
+Cada subtópico deve possuir NO MÍNIMO 50 CARDS REAIS.
 
 FÓRMULA:
-MÍNIMO DE CARDS = quantidade REAL de subtópicos × 50
+
+CARDS MÍNIMOS = QUANTIDADE REAL DE SUBTÓPICOS × 50
 
 Exemplo:
-20 subtópicos = mínimo de 1.000 cards.
+10 subtópicos → mínimo 500 cards.
+20 subtópicos → mínimo 1.000 cards.
+30 subtópicos → mínimo 1.500 cards.
 
-Um subtópico com 100 cards NÃO compensa outro com 40.
+ATENÇÃO:
+
+50 cards para dois subtópicos NÃO significa 500 cards.
+
+Um subtópico com 100 cards não compensa outro com 20.
+
+Cada subtópico precisa ser validado separadamente.
+
+==================================================
+CONTROLE OBRIGATÓRIO POR SUBTÓPICO
+==================================================
+
+Mantenha internamente uma tabela de controle semelhante a:
+
+SUBTÓPICO | CARDS | STATUS
+
+Cinemática: movimento uniforme | 50 | OK
+Cinemática: movimento uniformemente variado | 50 | OK
+...
 
 NÃO finalize enquanto existir qualquer subtópico com menos de 50 cards.
-NÃO pule subtópicos.
-NÃO deixe subtópicos sem cards.
+
+Antes de finalizar, percorra TODOS os cards e conte novamente por `subtopic`.
+
+A estatística NÃO pode ser usada para fingir que cards existem.
+
+`statistics.cards` deve ser exatamente a quantidade de objetos existentes em `cards[]`.
 
 ==================================================
-QUALIDADE DOS CARDS
+QUALIDADE E DIVERSIDADE
 ==================================================
 
-Os 50 cards de cada subtópico devem ser realmente distintos e úteis.
+Os 50 cards de cada subtópico precisam ser realmente distintos.
 
-Explore, quando aplicável:
-definição, conceitos, características, identificação, classificação, comparação, diferenças, exemplos, contraexemplos, aplicação, análise, interpretação, correção de erros, exceções, casos-limite, erros comuns, pegadinhas, relações entre conceitos e situações práticas.
+Varie, quando aplicável:
+- definição;
+- conceito;
+- identificação;
+- classificação;
+- comparação;
+- diferenças;
+- exemplos;
+- contraexemplos;
+- aplicação;
+- interpretação;
+- análise;
+- resolução de problemas;
+- correção de erros;
+- exceções;
+- casos-limite;
+- erros comuns;
+- pegadinhas;
+- situações práticas;
+- questões contextualizadas.
 
-Não transforme a mesma pergunta em várias apenas trocando palavras.
+Não faça a mesma pergunta trocando apenas uma palavra.
 Não repita a mesma resposta superficialmente.
-Não gere perguntas genéricas apenas para preencher a quantidade.
-Não invente fatos ou regras.
+Não crie perguntas genéricas apenas para atingir 50.
+Não invente fatos, fórmulas, leis ou regras.
 
 ==================================================
-ESTRUTURA OBRIGATÓRIA DO ARQUIVO
+ESTRUTURA DO ARQUIVO
 ==================================================
 
-O resultado FINAL deve ser o PRÓPRIO CONTEÚDO COMPLETO do arquivo `.mflash`.
-
-REGRA CRÍTICA:
-
-NÃO entregue um resumo.
-NÃO entregue somente estatísticas.
-NÃO entregue somente o manifesto.
-NÃO entregue somente a quantidade de cards.
-NÃO entregue um campo `file`.
-NÃO entregue um caminho `sandbox:/mnt/data/...`.
-NÃO entregue um link para um arquivo.
-NÃO escreva "arquivo criado".
-NÃO escreva explicações antes ou depois do JSON.
-
-O JSON da resposta será salvo DIRETAMENTE como o arquivo `.mflash`.
-
-O JSON deve possuir obrigatoriamente:
+O arquivo deve conter exatamente uma estrutura JSON semelhante a:
 
 {
   "format": "memoriaflash",
@@ -124,167 +186,200 @@ O JSON deve possuir obrigatoriamente:
   "package": "nivel",
   "contentVersion": "1.0.0",
   "language": "pt-BR",
-  "levels": [...],
-  "statistics": {...},
-  "generator": {...},
-  "levelsData": [...],
-  "cards": [...]
+  "levels": ["medio"],
+  "statistics": {},
+  "generator": {},
+  "levelsData": [],
+  "cards": []
 }
 
-A lista `cards[]` NA RAIZ É OBRIGATÓRIA.
-Ela deve conter TODOS os cards reais do arquivo.
+A lista `cards[]` é OBRIGATÓRIA e deve conter TODOS os cards reais.
+
+NÃO use placeholders como `...` no arquivo final.
+
+NÃO coloque apenas uma amostra de cards.
 
 ==================================================
-ESTRUTURA DE CADA CARD
+CADA CARD
 ==================================================
 
-Cada card deve possuir:
+Cada objeto em `cards[]` deve possuir:
 
-- id
-- level
-- subject
-- curriculum
-- topic
-- subtopic
-- front
-- question
-- back
-- answer
-- explanation
-- curiosity
-- difficulty
-- contentHash
+id
+level
+subject
+curriculum
+topic
+subtopic
+front
+question
+back
+answer
+explanation
+curiosity
+difficulty
+contentHash
 
-`front/question` representam a pergunta.
-`back/answer` representam a resposta.
+`difficulty` deve ser somente:
 
-Os valores de `level` e `subject` devem corresponder à matéria e ao nível definidos no início.
-
-==================================================
-DIFICULDADE
-==================================================
-
-Use somente:
 easy
 medium
 hard
 
-A dificuldade deve ser coerente com o conteúdo e com o nível informado.
-
-==================================================
-IDS E HASH
-==================================================
-
-IDs devem ser únicos e estáveis.
-Não coloque IDs ou hashes dentro dos textos dos cards.
-
-`contentHash` deve ser determinístico e baseado no conteúdo do card.
+IDs devem ser únicos.
 
 ==================================================
 ESTATÍSTICAS
 ==================================================
 
-Calcule tudo a partir dos dados reais.
+Calcule as estatísticas DEPOIS de gerar todos os cards.
 
-statistics.cards = quantidade REAL de objetos em cards[]
-statistics.subtopics = quantidade REAL de subtópicos
-statistics.topics = quantidade REAL de tópicos
-statistics.curricula = quantidade REAL de grades
-statistics.subjects = quantidade REAL de matérias
+Nunca estime.
+Nunca invente.
+Nunca copie uma quantidade esperada.
+
+Use:
+
+statistics.cards = quantidade real de objetos em cards[]
+statistics.subtopics = quantidade real de subtópicos
+statistics.topics = quantidade real de tópicos
+statistics.curricula = quantidade real de currículos
+statistics.subjects = quantidade real de matérias
 statistics.cardsPerSubtopic = 50
 statistics.minimumCardsPerSubtopic = 50
-statistics.minimumCardsRequired = statistics.subtopics × 50
-statistics.coveredSubtopics = quantidade com >= 50 cards
-statistics.incompleteSubtopics = quantidade com < 50 cards
+statistics.minimumCardsRequired = statistics.subtopics * 50
+statistics.coveredSubtopics = quantidade de subtópicos com >= 50 cards
+statistics.incompleteSubtopics = quantidade de subtópicos com < 50 cards
 
-Condição de sucesso:
+Condição obrigatória para o arquivo ser considerado completo:
+
 statistics.cards >= statistics.minimumCardsRequired
+E
 statistics.coveredSubtopics = statistics.subtopics
+E
 statistics.incompleteSubtopics = 0
 
 ==================================================
-AUDITORIA FINAL OBRIGATÓRIA
+VALIDAÇÃO FINAL
 ==================================================
 
-Antes de entregar, confirme:
+Antes de criar/entregar o arquivo, valide:
 
-[ ] MATÉRIA está correta
-[ ] NÍVEL está correto
-[ ] nível pertence aos cinco níveis oficiais
-[ ] grade completa está presente
-[ ] todos os tópicos estão presentes
-[ ] todos os subtópicos estão presentes
+[ ] MATÉRIA correta
+[ ] NÍVEL correto
+[ ] nível pertence aos cinco níveis permitidos
+[ ] grade curricular completa
+[ ] todos os tópicos presentes
+[ ] todos os subtópicos presentes
 [ ] cada subtópico possui >= 50 cards
 [ ] nenhum subtópico possui menos de 50
-[ ] quantidade mínima total foi atingida
-[ ] cards[] existe na raiz
-[ ] cards[] contém TODOS os cards
-[ ] statistics.cards corresponde ao número real de cards
+[ ] `cards[]` contém todos os cards
+[ ] quantidade real de cards foi contada
+[ ] statistics.cards está correta
 [ ] IDs são únicos
-[ ] perguntas são realmente diferentes
-[ ] não existem duplicações artificiais
-[ ] todos os cards possuem pergunta e resposta
-[ ] todos possuem explanation e curiosity
+[ ] cards são distintos
+[ ] todos os campos obrigatórios existem
 [ ] difficulty é válida
-[ ] contentHash está presente
-[ ] referências de level/subject/curriculum/topic/subtopic são válidas
+[ ] contentHash existe
+[ ] referências hierárquicas são válidas
 [ ] coveredSubtopics = subtopics
 [ ] incompleteSubtopics = 0
 
-SE QUALQUER ITEM FALHAR, NÃO ENTREGUE O ARQUIVO.
-CORRIJA E VALIDE NOVAMENTE.
+SE QUALQUER ITEM FALHAR:
+
+NÃO CRIE O ARQUIVO COMO CONCLUÍDO.
+CORRIJA A GERAÇÃO.
+VALIDE NOVAMENTE.
+SOMENTE ENTÃO ENTREGUE O `.mflash`.
 
 ==================================================
-SAÍDA FINAL — REGRA ABSOLUTA
+REGRAS PARA GERAÇÃO DO ARQUIVO
 ==================================================
 
-Entregue SOMENTE o JSON COMPLETO do arquivo `.mflash`.
+Se houver ferramenta de criação de arquivo:
 
-A resposta deve começar diretamente com:
-{
+1. gere o JSON completo;
+2. valide o JSON;
+3. salve como `[MATÉRIA_NORMALIZADA]_[NÍVEL].mflash`;
+4. disponibilize o arquivo criado ao usuário;
+5. não entregue um arquivo falso ou apenas um caminho textual.
 
-E terminar diretamente com:
-}
+Se NÃO houver ferramenta de criação de arquivo:
 
-NÃO use Markdown.
-NÃO use ```json.
-NÃO escreva explicações.
-NÃO escreva resumo.
-NÃO escreva caminho de arquivo.
-NÃO escreva `sandbox:/mnt/data/...`.
-NÃO escreva "arquivo criado".
-NÃO retorne somente estatísticas.
-NÃO retorne um objeto com `{ statistics, file }`.
+1. entregue SOMENTE o JSON completo;
+2. não use Markdown;
+3. não use ```json;
+4. não escreva texto antes ou depois;
+5. não coloque `sandbox:/mnt/data/...`;
+6. não coloque um campo `file`.
 
-O conteúdo retornado será salvo diretamente como arquivo `.mflash`.
+==================================================
+LIMITAÇÃO DE TAMANHO
+==================================================
+
+Se a plataforma não suportar todos os cards em uma única resposta, NÃO reduza a quantidade e NÃO invente as estatísticas.
+
+Nesse caso, só use geração em partes se existir um processo externo que consiga juntar e validar as partes automaticamente.
+
+Cada parte deve preservar:
+- a mesma matéria;
+- o mesmo nível;
+- a mesma grade;
+- IDs únicos;
+- subtópicos corretos.
+
+O arquivo só é completo quando TODOS os subtópicos possuem pelo menos 50 cards reais.
+
+==================================================
+SAÍDA
+==================================================
+
+O resultado final deve ser o ARQUIVO `.mflash` completo.
+
+Se puder criar arquivos, ANEXE/ENTREGUE o arquivo.
+
+Se não puder criar arquivos, entregue somente o JSON completo que será salvo como `.mflash`.
+
+NÃO entregue apenas estatísticas.
+NÃO entregue apenas manifesto.
+NÃO entregue apenas uma amostra.
+NÃO entregue um campo `file`.
+NÃO invente que um arquivo existe.
 ```
 
-## 3. EXEMPLO DE USO
+---
 
-Para gerar Português Médio:
+# 3. EXEMPLO DE USO
+
+Para gerar Português — Ensino Médio:
 
 ```text
 MATÉRIA: Português
 NÍVEL: medio
 ```
 
-Se a grade possuir 20 subtópicos, o resultado precisa conter pelo menos:
+Nome esperado:
 
 ```text
-20 × 50 = 1.000 CARDS REAIS
+Portugues_Medio.mflash
 ```
 
-E cada um dos 20 subtópicos precisa possuir pelo menos 50 cards.
+Se a grade tiver 20 subtópicos:
 
-### ATENÇÃO AO ERRO MAIS COMUM
+```text
+minimumCardsRequired = 20 × 50 = 1000
+```
 
-Este resultado é INCORRETO:
+O arquivo precisa conter **1.000 objetos reais em `cards[]`**, distribuídos com pelo menos 50 para cada subtópico.
+
+---
+
+# 4. ERRO QUE NÃO PODE ACONTECER
+
+Isto é INCORRETO:
 
 ```json
 {
-  "format": "memoriaflash",
-  "formatVersion": "1.0",
-  "package": "nivel",
   "statistics": {
     "cards": 1000,
     "subtopics": 20
@@ -293,39 +388,20 @@ Este resultado é INCORRETO:
 }
 ```
 
-Ele informa que existem 1.000 cards, mas NÃO contém os 1.000 cards.
+Isso apenas afirma que existem 1.000 cards. Não contém os cards e não cria um arquivo.
 
-O resultado correto precisa possuir:
+Também é INCORRETO gerar uma estrutura que declare 10 subtópicos e entregue cards somente para 2 deles.
 
-```json
-{
-  "format": "memoriaflash",
-  "formatVersion": "1.0",
-  "package": "nivel",
-  "contentVersion": "1.0.0",
-  "language": "pt-BR",
-  "levels": ["medio"],
-  "statistics": {...},
-  "generator": {...},
-  "levelsData": [...],
-  "cards": [
-    {"id":"...", "level":"medio", "subject":"Português", "curriculum":"...", "topic":"...", "subtopic":"...", "front":"...", "question":"...", "back":"...", "answer":"...", "explanation":"...", "curiosity":"...", "difficulty":"easy", "contentHash":"..."}
-  ]
-}
-```
+O gerador deve contar os cards reais por subtópico antes de considerar o pacote concluído.
 
-A lista `cards[]` deve conter TODOS os cards, não apenas um exemplo.
+---
 
-## 4. LIMITES DE SAÍDA
+# 5. COMPATIBILIDADE COM O MEMORIAFLASHAGENT
 
-Se a ferramenta de IA não conseguir retornar todos os cards em uma única resposta, NÃO reduza a quantidade, NÃO invente a estatística e NÃO declare o arquivo completo.
+O Alimentador de Conteúdo do MemoriaFlashAgent deve receber o arquivo `.mflash` real e validar seu conteúdo.
 
-Nesse caso, gere em partes somente se houver um processo externo confiável para montar as partes em um único JSON válido. As partes devem manter IDs únicos e preservar a mesma grade e hierarquia.
+A validação deve considerar `cards[]` como fonte da verdade para a quantidade de cards.
 
-O arquivo final só está completo quando todos os subtópicos possuem pelo menos 50 cards reais.
+`statistics.cards` nunca deve substituir os cards reais.
 
-## 5. COMPATIBILIDADE COM O ALIMENTADOR
-
-O MemoriaFlashAgent aceita `cards[]` na raiz e estruturas em `levelsData`. O Alimentador valida a quantidade real de cards e a consistência da hierarquia antes de publicar.
-
-Portanto, o gerador deve entregar o conteúdo completo. O Alimentador não deve considerar um campo `statistics.cards` como substituto dos cards reais.
+O arquivo final deve poder ser colocado na pasta `content-packages` e selecionado pelo modo Alimentador de Conteúdo.
