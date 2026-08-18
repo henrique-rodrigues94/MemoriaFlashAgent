@@ -7,6 +7,7 @@ describe('agent modes',()=>{
     expect(normalizeAgentMode('update_requested')).toBe('update_requested');
     expect(normalizeAgentMode('discover_new')).toBe('discover_new');
     expect(normalizeAgentMode('cleanup')).toBe('cleanup');
+    expect(normalizeAgentMode('content_importer')).toBe('content_importer');
     expect(normalizeAgentMode('automatic')).toBe('automatic');
   });
   it('falls back safely for invalid values',()=>{
