@@ -15,6 +15,7 @@
     "admin:report": "tsx src/server/contentAgent/admin/report.ts",
     "admin:audit": "tsx -e \"import { runDatabaseAudit } from './src/server/contentAgent/admin/databaseAudit'; runDatabaseAudit().then(x => console.log(JSON.stringify(x,null,2))).catch(e => { console.error(e); process.exit(1); })\"",
     "content:validate": "tsx src/server/contentAgent/importer/validateMflash.ts",
+    "content:analyze": "tsx src/server/contentAgent/importer/analyzeMflash.ts",
     "production:check": "tsx -e \"import { validateProductionEnvironment } from './src/server/contentAgent/productionGate'; const c=validateProductionEnvironment(); console.table(c); if(c.some(x=>!x.ok)) process.exit(1)\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
