@@ -18,9 +18,9 @@ on:
           - 'Limpeza de cards'
           - 'Alimentador de conteúdo'
       mflash_path:
-        description: 'Caminho do .mflash dentro do repositório. Usado apenas no Alimentador de conteúdo.'
-        required: false
-        default: ''
+        description: 'Nome do arquivo .mflash dentro de content-packages/ (somente o nome do arquivo). Usado apenas no Alimentador de conteúdo.'
+        required: true
+        default: 'Portugues_Fundamental.mflash'
         type: string
       import_auto_publish:
         description: 'No Alimentador, publicar no Firebase após validação e staging?'
@@ -68,7 +68,7 @@ jobs:
         env:
           NODE_ENV: production
           CONTENT_AGENT_PRODUCTION_STRICT: 'true'
-          CONTENT_IMPORT_MFLASH_PATH: ${{ inputs.mflash_path }}
+          CONTENT_IMPORT_MFLASH_PATH: content-packages/${{ inputs.mflash_path }}
           CONTENT_IMPORT_AUTO_PUBLISH: ${{ inputs.import_auto_publish }}
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
