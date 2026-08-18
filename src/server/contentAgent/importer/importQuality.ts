@@ -19,9 +19,7 @@ const MAX_SIMILARITY_CANDIDATES = Number(process.env.CONTENT_IMPORT_MAX_SIMILARI
 function normalize(value: string): string {
   return value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
-function tokenSet(value: string): Set<string> {
-  return new Set(normalize(value).split(' ').filter(token => token.length > 2));
-}
+function tokenSet(value: string): Set<string> { return new Set(normalize(value).split(' ').filter(token => token.length > 2)); }
 function similarity(a: string, b: string): number {
   const aa = tokenSet(a); const bb = tokenSet(b);
   if (!aa.size || !bb.size) return 0;
@@ -34,13 +32,12 @@ export function analyzeImportQuality(pkg: MflashPackage): ImportQualityReport {
   for (const level of OFFICIAL_LEVELS) levelCoverage[level] = { subjects: 0, topics: 0, subtopics: 0, cards: 0 };
   const without: ImportQualityReport['subtopicsWithoutCards'] = [];
   const below: ImportQualityReport['subtopicsBelowMinimum'] = [];
-  const fingerprints = new Map<string, string>();
+  const fingerprints = new Map<string, { front: string; path: string }>();
   const candidates: ImportQualityReport['similarDuplicateCandidates'] = [];
   let totalTopics = 0; let totalSubtopics = 0; let exactDuplicateCards = 0;
 
   for (const level of pkg.levels) {
-    const coverage = levelCoverage[level.id];
-    if (!coverage) continue;
+    const coverage = levelCoverage[level.id]; if (!coverage) continue;
     coverage.subjects += level.subjects.length;
     for (const subject of level.subjects) for (const curriculum of subject.curricula) for (const topic of curriculum.topics) {
       totalTopics++; coverage.topics++;
@@ -55,20 +52,18 @@ export function analyzeImportQuality(pkg: MflashPackage): ImportQualityReport {
           const back = String(card.back || card.answer || '').trim();
           const fp = normalize(`${front}|${back}|${subject.name}|${topic.name}|${subtopic.name}|${level.id}`);
           const hash = createHash('sha256').update(fp).digest('hex');
-          const previous = fingerprints.get(hash);
-          if (previous) { exactDuplicateCards++; continue; }
-          fingerprints.set(hash, `${level.id}/${subject.name}/${topic.name}/${subtopic.name}/${card.id || hash.slice(0, 10)}`);
+          if (fingerprints.has(hash)) { exactDuplicateCards++; continue; }
+          const path = `${level.id}/${subject.name}/${topic.name}/${subtopic.name}/${card.id || hash.slice(0, 10)}`;
           if (candidates.length < MAX_SIMILARITY_CANDIDATES) {
-            const recent = [...fingerprints.entries()].slice(-80);
-            for (const [otherHash, otherPath] of recent) {
-              if (otherHash === hash) continue;
-              const score = similarity(front, otherPath);
+            for (const [otherHash, previous] of [...fingerprints.entries()].slice(-80)) {
+              const score = similarity(front, previous.front);
               if (score >= SIMILARITY_THRESHOLD) {
-                candidates.push({ first: otherHash.slice(0, 12), second: hash.slice(0, 12), similarity: Number(score.toFixed(3)), path: `${level.id}/${subject.name}/${topic.name}/${subtopic.name}` });
+                candidates.push({ first: otherHash.slice(0, 12), second: hash.slice(0, 12), similarity: Number(score.toFixed(3)), path: `${previous.path} ↔ ${path}` });
                 if (candidates.length >= MAX_SIMILARITY_CANDIDATES) break;
               }
             }
           }
+          fingerprints.set(hash, { front, path });
         }
       }
     }
