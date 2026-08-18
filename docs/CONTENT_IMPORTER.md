@@ -1,10 +1,10 @@
 # Alimentador de Conteúdo `completo.mflash`
 
-O MemoriaFlashAgent possui um modo adicional chamado `content_importer`. Ele recebe um único pacote editorial `completo.mflash`, valida o conteúdo, cria um staging, executa dry-run, compara com o Firebase e publica em lotes. **A importação não usa API de IA.**
+O MemoriaFlashAgent possui um modo adicional chamado `content_importer`. Ele recebe um pacote editorial `completo.mflash`, valida o conteúdo, cria um staging, executa dry-run, audita a qualidade, compara com o Firebase e publica em lotes. **A importação não usa API de IA.** Os demais modos do Agent continuam funcionando normalmente.
 
 ## Níveis oficiais
 
-O pacote completo deve declarar exatamente estes níveis:
+O pacote completo usa exatamente estes cinco níveis:
 
 - `fundamental` — FUNDAMENTAL
 - `medio` — MÉDIO
@@ -12,7 +12,7 @@ O pacote completo deve declarar exatamente estes níveis:
 - `concurso` — CONCURSO
 - `tecnico` — TÉCNICO
 
-Uma matéria só deve aparecer nos níveis em que realmente se aplica. Não copie uma grade de um nível para outro apenas para preencher a estrutura. Uma matéria específica de concurso, por exemplo, deve permanecer em CONCURSO.
+Uma matéria só deve aparecer nos níveis em que realmente se aplica. Não copie uma grade de um nível para outro apenas para preencher a estrutura.
 
 ## Hierarquia
 
@@ -24,6 +24,79 @@ NÍVEL
                  └── SUBTÓPICO
                       └── CARDS
 ```
+
+## O que foi incorporado ao planejamento
+
+O alimentador agora trata o arquivo como um **pacote editorial versionado**, e não como uma simples carga de JSON.
+
+### Segurança
+
+- SHA-256 do arquivo é calculado no staging.
+- O hash é conferido novamente ao carregar o staging.
+- O importador usa lock para impedir duas publicações simultâneas.
+- É feito backup dos documentos que serão alterados antes da publicação.
+- Existe rollback por `jobId`.
+- Cards ausentes da nova versão **não são apagados automaticamente**.
+- Conflitos de ID/conteúdo bloqueiam a publicação.
+- Buckets que excedem o tamanho seguro do Firestore bloqueiam a publicação.
+
+### Qualidade sem IA
+
+O staging executa uma auditoria determinística adicional:
+
+- cobertura por nível;
+- matérias, tópicos e subtópicos;
+- subtópicos sem cards;
+- subtópicos abaixo do mínimo configurado;
+- duplicados exatos;
+- candidatos a duplicação por similaridade textual;
+- hash de qualidade do relatório.
+
+Duplicação por similaridade é **aviso**, não exclusão automática. O conteúdo nunca é apagado somente porque duas perguntas parecem parecidas.
+
+Execute localmente antes de publicar:
+
+```bash
+npm run content:analyze -- ./completo.mflash
+```
+
+### Controle de armazenamento e custo
+
+O staging estima:
+
+- armazenamento atual;
+- armazenamento adicional;
+- armazenamento após importação;
+- percentual estimado do limite configurado;
+- quantidade de escritas;
+- limite seguro por execução;
+- referência diária de escritas.
+
+A importação é bloqueada quando ultrapassa os limites de segurança configurados.
+
+### Idempotência e versionamento
+
+Cada card usa ID e `contentHash`. Reimportar o mesmo conteúdo não deve criar cópias. Cards iguais são ignorados; cards com o mesmo ID e conteúdo diferente podem ser atualizados; conflitos de identidade são bloqueados.
+
+O histórico fica em `contentImportJobs`.
+
+## Estratégia de importação
+
+Configure `CONTENT_IMPORT_STRATEGY` para registrar a intenção da publicação:
+
+```env
+CONTENT_IMPORT_STRATEGY=sync
+```
+
+Valores planejados:
+
+```text
+add_only
+sync
+controlled_replace
+```
+
+A regra de segurança permanece: nenhuma estratégia remove cards automaticamente. Ausências devem ser tratadas como candidatos a revisão.
 
 ## Formato mínimo
 
@@ -88,43 +161,34 @@ NÍVEL
 }
 ```
 
-O arquivo real precisa conter os cinco níveis. O exemplo acima mostra somente a estrutura de um nível para facilitar a leitura.
-
-## Regras de produção
-
-1. `format` deve ser `memoriaflash`.
-2. `formatVersion` deve ser `1.0`.
-3. `package` deve ser `completo`.
-4. `contentVersion` é obrigatório.
-5. Os cinco níveis oficiais devem existir no pacote e no manifesto.
-6. IDs de cards devem ser únicos.
-7. Conteúdo duplicado é detectado por hash.
-8. Pergunta/front e resposta/back são obrigatórios.
-9. Cards de qualidade baixa são rejeitados pelo validador determinístico.
-10. O importador não exclui cards automaticamente.
-11. Conflitos de ID/conteúdo bloqueiam a publicação.
-12. O tamanho estimado do pacote e o uso lógico do Firestore são verificados antes da publicação.
-13. A publicação ocorre em lotes e possui histórico de importação.
-14. O conteúdo editorial não sobrescreve dados de uso, progresso ou feedback dos usuários.
+O arquivo real precisa conter os cinco níveis.
 
 ## Fluxo de publicação
 
 ```text
 completo.mflash
       ↓
-validação
+validação estrutural
       ↓
-staging
+auditoria de qualidade
+      ↓
+comparação com Firebase
+      ↓
+estimativa de armazenamento/quota
+      ↓
+staging + SHA-256
       ↓
 dry-run
       ↓
 aprovação
       ↓
+backup
+      ↓
 importação em lotes
       ↓
 pós-validação
       ↓
-Firebase
+PUBLISHED
 ```
 
 ## Dashboard administrativo
@@ -144,7 +208,7 @@ npm run build:admin
 npm run start:admin
 ```
 
-Abra o endereço configurado. O dashboard permite selecionar o `completo.mflash`, validar, colocar em staging, visualizar o dry-run e publicar.
+O dashboard permite selecionar o `.mflash`, criar staging, visualizar o dry-run, publicar, cancelar e executar rollback.
 
 Em produção, sempre use `ADMIN_DASHBOARD_TOKEN` e mantenha o dashboard atrás de uma rede/proxy privado. Não exponha o painel publicamente sem autenticação adicional.
 
@@ -158,35 +222,22 @@ CONTENT_IMPORT_JOB_ID=<ID_DO_JOB>
 CONTENT_AGENT_PRODUCTION_STRICT=true
 ```
 
-Então:
-
-```bash
-npm run build
-npm start
-```
-
 Esse modo não exige Gemini, DeepSeek ou OpenAI. Ele precisa apenas do Firebase Admin e das configurações de segurança.
 
-## Limite de armazenamento
-
-A auditoria e o importador usam uma referência configurável:
+## Limites recomendados
 
 ```env
 FIRESTORE_FREE_STORAGE_BYTES=1073741824
 CONTENT_IMPORT_MAX_STORAGE_PERCENT=95
+CONTENT_IMPORT_MAX_BYTES=52428800
+CONTENT_IMPORT_MAX_WRITES_PER_RUN=15000
+FIRESTORE_FREE_WRITES_PER_DAY=20000
+CONTENT_IMPORT_MIN_CARDS_PER_SUBTOPIC=1
+CONTENT_IMPORT_SIMILARITY_THRESHOLD=0.92
+CONTENT_IMPORT_MAX_SIMILARITY_CANDIDATES=200
 ```
 
-O percentual é uma **estimativa lógica dos documentos retornados pelo Firestore**. Não substitui o número oficial do Google Cloud, que inclui overhead de índices e metadados.
-
-## Segurança e recuperação
-
-- O pacote é hashado com SHA-256.
-- O staging registra o job, manifesto, estatísticas, problemas e hash.
-- O arquivo é armazenado em chunks no staging para não depender do limite de 1 MiB de um único documento.
-- A publicação é idempotente por `contentHash` e ID.
-- Um card ausente na nova versão não é apagado automaticamente.
-- O histórico permanece em `contentImportJobs`.
-- O importador verifica o tamanho de cada bucket antes de publicar.
+O percentual de armazenamento é uma **estimativa lógica dos documentos retornados pelo Firestore**. Não substitui o número oficial do Google Cloud, que inclui overhead de índices e metadados.
 
 ## Checklist operacional
 
@@ -195,11 +246,14 @@ Antes da primeira importação real:
 - [ ] Firebase Admin configurado.
 - [ ] `CONTENT_AGENT_PRODUCTION_STRICT=true`.
 - [ ] Token administrativo definido.
-- [ ] `completo.mflash` validado.
+- [ ] `.mflash` validado.
 - [ ] Os cinco níveis presentes.
+- [ ] `npm run content:analyze -- arquivo.mflash` sem erros críticos.
 - [ ] Dry-run sem erros críticos.
-- [ ] Conflitos resolvidos.
+- [ ] Duplicações e conflitos revisados.
+- [ ] Cobertura da grade revisada.
 - [ ] Percentual estimado do banco dentro do limite.
+- [ ] Quota de escritas dentro do limite.
 - [ ] Backup/política de rollback definida.
 - [ ] Importação de teste executada.
 - [ ] Aplicativo validado após publicação.
