@@ -1,5 +1,6 @@
 import { getAdminFirestore } from '../../firebaseAdmin';
-import { buildImportPlan, estimateStorageAfterImport, validateMflashPackage } from './completoMflash';
+import { buildImportPlan, estimateStorageAfterImport } from './completoMflash';
+import { validateAnyMflashPackage } from './validateAnyMflash';
 import { analyzeImportQuality } from './importQuality';
 import { createHash } from 'crypto';
 
@@ -22,7 +23,7 @@ export async function stageMflashProduction(rawText: string) {
   if (Buffer.byteLength(rawText, 'utf8') > MAX_BYTES) throw new Error('Arquivo excede o limite configurado para importação.');
   let parsed: unknown;
   try { parsed = JSON.parse(rawText); } catch (err: any) { throw new Error(`JSON inválido: ${err?.message || String(err)}`); }
-  const validation = validateMflashPackage(parsed);
+  const validation = validateAnyMflashPackage(parsed);
   if (!validation.package) throw new Error(`Arquivo inválido: ${validation.issues.filter(x => x.severity === 'error').map(x => x.message).join(' | ')}`);
   const packageHash = hash(rawText);
   const plan = await buildImportPlan(validation.package, packageHash);
@@ -43,7 +44,7 @@ export async function stageMflashProduction(rawText: string) {
   const db = getAdminFirestore(); if (!db) throw new Error('Firebase Admin não configurado.');
   const jobId = hash(`${packageHash}|${Date.now()}`).slice(0, 24);
   const jobRef = db.collection('contentImportJobs').doc(jobId);
-  await jobRef.set({ jobId, status: 'staged', package: 'completo', packageHash, manifest: plan.manifest, stats: plan.stats, issues: plan.issues, quality, storage, quota: { estimatedWrites, dailyFreeReference: dailyWrites, maxWritesPerRun }, chunkCount, importStrategy: process.env.CONTENT_IMPORT_STRATEGY || 'sync', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+  await jobRef.set({ jobId, status: 'staged', package: validation.package.manifest.package, packageHash, manifest: plan.manifest, stats: plan.stats, issues: plan.issues, quality, storage, quota: { estimatedWrites, dailyFreeReference: dailyWrites, maxWritesPerRun }, chunkCount, importStrategy: process.env.CONTENT_IMPORT_STRATEGY || 'sync', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   for (let i = 0; i < chunkCount; i++) {
     const data = rawText.slice(i * CHUNK_CHARS, (i + 1) * CHUNK_CHARS);
     await jobRef.collection('chunks').doc(String(i).padStart(6, '0')).set({ index: i, encoding: 'utf8', data });
