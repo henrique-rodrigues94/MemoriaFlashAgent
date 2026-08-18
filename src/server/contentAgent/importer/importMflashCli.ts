@@ -6,6 +6,7 @@ import { stdin as input, stdout as output } from 'process';
 import { stageImport, publishStagedImport } from './completoMflash';
 
 type Candidate = { file: string; type: 'completo' | 'nivel'; levels: string[]; subject?: string };
+type PackageMode = 'completo' | 'nivel';
 
 function question(rl: readline.Interface, text: string): Promise<string> { return rl.question(text); }
 
@@ -21,29 +22,40 @@ async function discover(directory: string): Promise<Candidate[]> {
       if (type !== 'completo' && type !== 'nivel') continue;
       candidates.push({ file, type, levels: Array.isArray(parsed?.manifest?.levels) ? parsed.manifest.levels : [], subject: parsed?.manifest?.subject });
     } catch {
-      // Arquivo .mflash inválido será reportado se o usuário o selecionar.
       candidates.push({ file, type: 'nivel', levels: [], subject: undefined });
     }
   }
   return candidates.sort((a, b) => a.file.localeCompare(b.file));
 }
 
-async function chooseCandidate(rl: readline.Interface, candidates: Candidate[]): Promise<Candidate> {
-  if (candidates.length === 0) throw new Error('Nenhum arquivo .mflash encontrado no diretório informado.');
-  console.log('\nArquivos .mflash encontrados:');
-  candidates.forEach((candidate, index) => console.log(`  [${index + 1}] ${path.basename(candidate.file)} — ${candidate.type === 'nivel' ? `NÍVEL: ${candidate.levels.join(', ')}` : 'COMPLETO'}`));
+async function chooseMode(rl: readline.Interface): Promise<PackageMode> {
+  console.log('\nTipo de alimentação:');
+  console.log('  [1] Por nível — um único nível oficial');
+  console.log('  [2] Completo — os cinco níveis oficiais');
+  const answer = await question(rl, '\nEscolha [1/2]: ');
+  if (answer.trim() === '1') return 'nivel';
+  if (answer.trim() === '2') return 'completo';
+  throw new Error('Tipo de alimentação inválido. Escolha 1 ou 2.');
+}
+
+async function chooseCandidate(rl: readline.Interface, candidates: Candidate[], mode: PackageMode): Promise<Candidate> {
+  const filtered = candidates.filter(candidate => candidate.type === mode);
+  if (filtered.length === 0) {
+    throw new Error(`Nenhum arquivo .mflash do tipo "${mode}" foi encontrado no diretório informado.`);
+  }
+  console.log(`\nArquivos ${mode === 'nivel' ? 'POR NÍVEL' : 'COMPLETOS'} encontrados:`);
+  filtered.forEach((candidate, index) => console.log(`  [${index + 1}] ${path.basename(candidate.file)} — ${candidate.type === 'nivel' ? `NÍVEL: ${candidate.levels.join(', ')}` : 'FUNDAMENTAL + MÉDIO + FACULDADE + CONCURSO + TÉCNICO'}`));
   const answer = await question(rl, '\nSelecione o arquivo pelo número: ');
   const index = Number(answer) - 1;
-  if (!Number.isInteger(index) || !candidates[index]) throw new Error('Seleção inválida.');
-  return candidates[index];
+  if (!Number.isInteger(index) || !filtered[index]) throw new Error('Seleção inválida.');
+  return filtered[index];
 }
 
 async function main() {
   const rl = readline.createInterface({ input, output });
   try {
     console.log('=== MEMORIAFLASH — ALIMENTADOR DE CONTEÚDO ===');
-    console.log('Aceita pacotes COMPLETO e pacotes POR NÍVEL.');
-    console.log('Os arquivos serão validados, analisados, colocados em staging e só depois publicados.');
+    console.log('Importação segura: validação → análise → staging → confirmação → Firebase.');
 
     const suppliedDirectory = process.argv[2]?.trim();
     const directoryInput = suppliedDirectory || await question(rl, '\nInforme o diretório onde estão os arquivos .mflash: ');
@@ -52,7 +64,8 @@ async function main() {
     if (!stat?.isDirectory()) throw new Error(`Diretório não encontrado: ${directory}`);
 
     const candidates = await discover(directory);
-    const candidate = await chooseCandidate(rl, candidates);
+    const mode = await chooseMode(rl);
+    const candidate = await chooseCandidate(rl, candidates, mode);
     console.log(`\nArquivo selecionado: ${candidate.file}`);
 
     const raw = await fs.readFile(candidate.file, 'utf8');
