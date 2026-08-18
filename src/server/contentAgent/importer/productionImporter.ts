@@ -142,7 +142,7 @@ export async function rollbackImportJob(jobId: string): Promise<void> {
     for (let i = 0; i < backups.docs.length; i += BATCH_SIZE) {
       const batch = db.batch();
       for (const doc of backups.docs.slice(i, i + BATCH_SIZE)) {
-        const b = doc.data() as BackupDoc; const ref = db.collection(b.collection).doc(b.documentId);
+        const b = doc.data() as BackupDoc; const ref = db.collection(b.collection).doc(b.id);
         if (b.existed) batch.set(ref, b.data || {}, { merge: false }); else batch.delete(ref);
       }
       await batch.commit();
