@@ -9,8 +9,7 @@ function slug(value: string): string {
 }
 
 function levelId(value: unknown): string {
-  const raw = text(value);
-  const normalized = slug(raw);
+  const normalized = slug(text(value));
   const aliases: Record<string, string> = {
     fundamental: 'fundamental', 'ensino-fundamental': 'fundamental',
     medio: 'medio', 'ensino-medio': 'medio', 'ensino-médio': 'medio',
@@ -101,13 +100,10 @@ function buildFlatLegacyLevel(root: any, id: string): MflashLevelInput {
   const rootTopics = root?.topics || root?.topicos || root?.tópicos || [];
   const rootSubtopics = root?.subtopics || root?.subtopicos || root?.subtópicos || [];
   const rootCards = root?.cards || root?.cardsData || root?.flashcards || [];
-
   let topics: MflashTopicInput[] = [];
-  if (Array.isArray(rootTopics) && rootTopics.length) {
-    topics = rootTopics.map(normalizeTopic);
-  } else if (Array.isArray(rootSubtopics) && rootSubtopics.length) {
-    topics = [{ name: 'Conteúdo geral', subtopics: rootSubtopics.map(normalizeSubtopic) }];
-  } else if (Array.isArray(rootCards) && rootCards.length) {
+  if (Array.isArray(rootTopics) && rootTopics.length) topics = rootTopics.map(normalizeTopic);
+  else if (Array.isArray(rootSubtopics) && rootSubtopics.length) topics = [{ name: 'Conteúdo geral', subtopics: rootSubtopics.map(normalizeSubtopic) }];
+  else if (Array.isArray(rootCards) && rootCards.length) {
     const topicMap = new Map<string, Map<string, MflashCardInput[]>>();
     for (const raw of rootCards) {
       const topic = text(raw?.topic || raw?.topico || raw?.tópico) || 'Conteúdo geral';
@@ -117,17 +113,9 @@ function buildFlatLegacyLevel(root: any, id: string): MflashLevelInput {
       if (!subtopics.has(subtopic)) subtopics.set(subtopic, []);
       subtopics.get(subtopic)!.push(normalizeCard(raw));
     }
-    topics = [...topicMap.entries()].map(([topic, subtopics]) => ({
-      name: topic,
-      subtopics: [...subtopics.entries()].map(([subtopic, cards]) => ({ name: subtopic, cards })),
-    }));
+    topics = [...topicMap.entries()].map(([topic, subtopics]) => ({ name: topic, subtopics: [...subtopics.entries()].map(([subtopic, cards]) => ({ name: subtopic, cards })) }));
   }
-
-  return {
-    id,
-    name: text(root?.levelName || root?.nivelNome || root?.nívelNome) || id.toUpperCase(),
-    subjects: [{ name: subjectName, curricula: [{ name: 'Grade completa', topics }] }],
-  };
+  return { id: id as MflashLevelInput['id'], name: text(root?.levelName || root?.nivelNome || root?.nívelNome) || id.toUpperCase(), subjects: [{ name: subjectName, curricula: [{ name: 'Grade completa', topics }] }] };
 }
 
 function buildManifest(root: any, packageType: 'completo' | 'nivel', levels: string[]): MflashManifest {
@@ -143,34 +131,28 @@ function buildManifest(root: any, packageType: 'completo' | 'nivel', levels: str
   };
 }
 
-/**
- * Aceita o pacote editorial atual e formatos legados gerados antes do schema
- * oficial. O resultado sempre é o schema interno usado pelo importador.
- */
 export function normalizeMflashForImport(input: unknown): MflashPackage {
   const root = input as any;
   if (!root || typeof root !== 'object') throw new Error('Arquivo .mflash precisa conter um objeto JSON.');
-
   const declaredLevels = Array.isArray(root.levels) ? root.levels.map(normalizeLevel) : [];
   const declaredLevel = levelId(root?.manifest?.levels?.[0] || root?.level || root?.nivel || root?.nível || root?.educationLevel);
-  let levels = declaredLevels;
-  if (!levels.length && OFFICIAL_LEVELS.includes(declaredLevel as any)) levels = [buildFlatLegacyLevel(root, declaredLevel)];
+  let levels: MflashLevelInput[] = declaredLevels;
+  if (!levels.length && OFFICIAL_LEVELS.includes(declaredLevel as MflashLevelInput['id'])) levels = [buildFlatLegacyLevel(root, declaredLevel)];
   if (!levels.length) throw new Error(`Não foi possível identificar o nível do arquivo .mflash. Níveis permitidos: ${OFFICIAL_LEVELS.join(', ')}.`);
 
-  const validLevels = levels.filter(level => OFFICIAL_LEVELS.includes(level.id));
+  const validLevels: MflashLevelInput[] = levels.filter(level => OFFICIAL_LEVELS.includes(level.id));
   if (validLevels.length !== levels.length) throw new Error(`Nível inválido no .mflash. Permitidos: ${OFFICIAL_LEVELS.join(', ')}.`);
 
-  const unique = [...new Map(validLevels.map(level => [level.id, level])).values()];
+  const unique: MflashLevelInput[] = [...new Map(validLevels.map(level => [level.id, level] as const)).values()];
   const packageType: 'completo' | 'nivel' = unique.length === 1 ? 'nivel' : 'completo';
   const manifest = buildManifest(root, packageType, packageType === 'nivel' ? [unique[0].id] : [...OFFICIAL_LEVELS]);
 
   if (packageType === 'completo') {
-    const byId = new Map(unique.map(level => [level.id, level]));
-    levels = OFFICIAL_LEVELS.map(id => byId.get(id) || { id, name: id.toUpperCase(), subjects: [] });
+    const byId = new Map<string, MflashLevelInput>(unique.map(level => [level.id, level]));
+    levels = OFFICIAL_LEVELS.map(id => byId.get(id) || ({ id, name: id.toUpperCase(), subjects: [] } as MflashLevelInput));
   } else {
     levels = [unique[0]];
   }
-
   return { manifest, levels };
 }
 
