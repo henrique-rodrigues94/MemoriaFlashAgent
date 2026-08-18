@@ -17,6 +17,7 @@
     "content:validate": "tsx src/server/contentAgent/importer/validateMflash.ts",
     "content:analyze": "tsx src/server/contentAgent/importer/analyzeMflash.ts",
     "content:import": "tsx src/server/contentAgent/importer/importMflashCli.ts",
+    "content:import:ci": "tsx src/server/contentAgent/importer/importMflashCi.ts",
     "content:generate-level": "tsx src/server/ai/tasks/generateLevelMflash.ts",
     "production:check": "tsx -e \"import { validateProductionEnvironment } from './src/server/contentAgent/productionGate'; const c=validateProductionEnvironment(); console.table(c); if(c.some(x=>!x.ok)) process.exit(1)\"",
     "typecheck": "tsc --noEmit",
