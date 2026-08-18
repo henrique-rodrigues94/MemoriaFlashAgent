@@ -6,11 +6,11 @@
   "type": "commonjs",
   "scripts": {
     "build": "esbuild src/server/contentAgent/run.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/content-agent.cjs",
-    "build:admin": "esbuild src/server/adminAgent/server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/admin-dashboard.cjs",
+    "build:admin": "esbuild src/server/adminAgent/productionServer.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/admin-dashboard.cjs",
     "start": "node dist/content-agent.cjs",
     "start:admin": "node dist/admin-dashboard.cjs",
     "dev": "tsx src/server/contentAgent/run.ts",
-    "dev:admin": "tsx src/server/adminAgent/server.ts",
+    "dev:admin": "tsx src/server/adminAgent/productionServer.ts",
     "rollback": "tsx src/server/contentAgent/rollback.ts",
     "admin:report": "tsx src/server/contentAgent/admin/report.ts",
     "admin:audit": "tsx -e \"import { runDatabaseAudit } from './src/server/contentAgent/admin/databaseAudit'; runDatabaseAudit().then(x => console.log(JSON.stringify(x,null,2))).catch(e => { console.error(e); process.exit(1); })\"",
