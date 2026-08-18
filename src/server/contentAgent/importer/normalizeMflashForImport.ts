@@ -89,6 +89,32 @@ function arrayOf(root: AnyRecord, ...names: string[]): AnyRecord[] {
   return [];
 }
 
+function cardHierarchyValue(card: AnyRecord, kind: 'topic' | 'subtopic'): string {
+  const aliases: Record<string, string[]> = {
+    topic: ['topic', 'topico', 'tópico', 'topicName'],
+    subtopic: ['subtopic', 'subtopico', 'subtópico', 'subtopicName'],
+  };
+  return text(first(...aliases[kind].map(key => card?.[key])));
+}
+
+/** Agrupa cards planos quando o formato editorial fornece apenas cards[]. */
+function buildFlatCardsHierarchy(cards: AnyRecord[]): MflashTopicInput[] {
+  const topics = new Map<string, Map<string, MflashCardInput[]>>();
+  for (const raw of cards) {
+    const topicName = cardHierarchyValue(raw, 'topic') || 'Conteúdo geral';
+    const subtopicName = cardHierarchyValue(raw, 'subtopic') || 'Conteúdo geral';
+    if (!topics.has(topicName)) topics.set(topicName, new Map());
+    const subtopics = topics.get(topicName)!;
+    if (!subtopics.has(subtopicName)) subtopics.set(subtopicName, []);
+    subtopics.get(subtopicName)!.push(normalizeCard(raw));
+  }
+  return [...topics.entries()].map(([topic, subtopics]) => ({
+    id: slug(topic),
+    name: topic,
+    subtopics: [...subtopics.entries()].map(([subtopic, cardList]) => ({ id: slug(subtopic), name: subtopic, cards: cardList })),
+  }));
+}
+
 /**
  * Converte o formato editorial do Content Builder, que guarda os dados em
  * levelsData (inclusive em listas relacionais), para o formato hierárquico
@@ -113,7 +139,6 @@ function buildLevelsDataHierarchy(levelData: AnyRecord, level: string): MflashLe
   const subjectName = (raw: AnyRecord) => text(raw?.name || raw?.nome || raw?.subject || raw?.materia || raw?.matéria) || 'Português';
   const curriculumName = (raw: AnyRecord) => text(raw?.name || raw?.nome || raw?.title) || 'Grade completa';
   const topicName = (raw: AnyRecord) => text(raw?.name || raw?.nome || raw?.topic || raw?.topico || raw?.tópico) || 'Tópico';
-  const subtopicName = (raw: AnyRecord) => text(raw?.name || raw?.nome || raw?.subtopic || raw?.subtopico || raw?.subtópico) || 'Subtópico';
 
   const subjectById = new Map<string, AnyRecord>();
   for (const raw of subjects) subjectById.set(refId(raw) || slug(subjectName(raw)), raw);
@@ -121,8 +146,6 @@ function buildLevelsDataHierarchy(levelData: AnyRecord, level: string): MflashLe
   for (const raw of curricula) curriculumById.set(refId(raw) || slug(curriculumName(raw)), raw);
   const topicById = new Map<string, AnyRecord>();
   for (const raw of topics) topicById.set(refId(raw) || slug(topicName(raw)), raw);
-  const subtopicById = new Map<string, AnyRecord>();
-  for (const raw of subtopics) subtopicById.set(refId(raw) || slug(subtopicName(raw)), raw);
 
   const cardBySubtopic = new Map<string, MflashCardInput[]>();
   for (const raw of cards) {
@@ -136,7 +159,10 @@ function buildLevelsDataHierarchy(levelData: AnyRecord, level: string): MflashLe
   const subtopicsForTopic = (topic: AnyRecord): MflashSubtopicInput[] => {
     const topicId = refId(topic);
     const nested = arrayOf(topic, 'subtopics', 'subtopicos', 'subtópicos');
-    if (nested.length) return nested.map(raw => ({ ...normalizeSubtopic(raw), cards: (normalizeSubtopic(raw).cards.length ? normalizeSubtopic(raw).cards : cardBySubtopic.get(refId(raw) || relationId(raw, 'id')) || []) }));
+    if (nested.length) return nested.map(raw => {
+      const normalized = normalizeSubtopic(raw);
+      return { ...normalized, cards: normalized.cards.length ? normalized.cards : (cardBySubtopic.get(refId(raw)) || []) };
+    });
     return subtopics
       .filter(raw => {
         const parent = relationId(raw, 'topicId', 'topicoId', 'tópicoId', 'topic_id', 'topic');
@@ -170,11 +196,31 @@ function buildLevelsDataHierarchy(levelData: AnyRecord, level: string): MflashLe
   };
 
   let normalizedSubjects = subjects.map(raw => ({ ...normalizeSubject(raw), curricula: curriculaForSubject(raw) }));
+
+  // Formato editorial achatado: levelsData[0].cards contém os cards, mas
+  // não existem subjects/curricula/topics/subtopics. Antes os cards eram
+  // silenciosamente perdidos e o staging recebia 0 cards.
   if (!normalizedSubjects.length && (curricula.length || topics.length || subtopics.length || cards.length)) {
-    const synthetic: AnyRecord = { id: `subject-${slug(level)}`, name: text(levelData?.subject || levelData?.materia || levelData?.matéria) || 'Português' };
-    normalizedSubjects = [{ ...normalizeSubject(synthetic), curricula: curricula.length
-      ? curricula.map(raw => ({ ...normalizeCurriculum(raw), topics: topicsForCurriculum(raw) }))
-      : [{ name: 'Grade completa', topics: topics.map(raw => ({ ...normalizeTopic(raw), subtopics: subtopicsForTopic(raw) })) }] }];
+    const synthetic: AnyRecord = {
+      id: `subject-${slug(level)}`,
+      name: text(levelData?.subject || levelData?.materia || levelData?.matéria) || 'Português',
+    };
+
+    let generatedTopics: MflashTopicInput[];
+    if (topics.length) {
+      generatedTopics = topics.map(raw => ({ ...normalizeTopic(raw), subtopics: subtopicsForTopic(raw) }));
+    } else if (subtopics.length) {
+      generatedTopics = [{ name: 'Conteúdo geral', subtopics: subtopics.map(raw => ({ ...normalizeSubtopic(raw), cards: cardBySubtopic.get(refId(raw)) || normalizeSubtopic(raw).cards })) }];
+    } else if (cards.length) {
+      generatedTopics = buildFlatCardsHierarchy(cards);
+    } else {
+      generatedTopics = [];
+    }
+
+    normalizedSubjects = [{
+      ...normalizeSubject(synthetic),
+      curricula: [{ name: curricula[0] ? curriculumName(curricula[0]) : 'Grade completa', topics: generatedTopics }],
+    }];
   }
 
   return {
@@ -197,18 +243,7 @@ function buildFlatLegacyLevel(root: any, id: string): MflashLevelInput {
   let topics: MflashTopicInput[] = [];
   if (Array.isArray(rootTopics) && rootTopics.length) topics = rootTopics.map(normalizeTopic);
   else if (Array.isArray(rootSubtopics) && rootSubtopics.length) topics = [{ name: 'Conteúdo geral', subtopics: rootSubtopics.map(normalizeSubtopic) }];
-  else if (Array.isArray(rootCards) && rootCards.length) {
-    const topicMap = new Map<string, Map<string, MflashCardInput[]>>();
-    for (const raw of rootCards) {
-      const topic = text(raw?.topic || raw?.topico || raw?.tópico) || 'Conteúdo geral';
-      const subtopic = text(raw?.subtopic || raw?.subtopico || raw?.subtópico) || 'Conteúdo geral';
-      if (!topicMap.has(topic)) topicMap.set(topic, new Map());
-      const subs = topicMap.get(topic)!;
-      if (!subs.has(subtopic)) subs.set(subtopic, []);
-      subs.get(subtopic)!.push(normalizeCard(raw));
-    }
-    topics = [...topicMap.entries()].map(([topic, subs]) => ({ name: topic, subtopics: [...subs.entries()].map(([subtopic, cards]) => ({ name: subtopic, cards })) }));
-  }
+  else if (Array.isArray(rootCards) && rootCards.length) topics = buildFlatCardsHierarchy(rootCards);
   return { id: id as MflashLevelInput['id'], name: text(root?.levelName || root?.nivelNome || root?.nívelNome) || id.toUpperCase(), subjects: [{ name: subjectName, curricula: [{ name: 'Grade completa', topics }] }] };
 }
 
