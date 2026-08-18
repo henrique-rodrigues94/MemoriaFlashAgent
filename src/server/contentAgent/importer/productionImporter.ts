@@ -1,6 +1,7 @@
 import { getAdminFirestore } from '../../firebaseAdmin';
 import { CardContentType, BankCard, EducationLevel, bucketId, contentHash, curriculumId, makeTtl, normalizeText, shortHash, TTL_DAYS } from '../../db/firestoreSchema';
-import { buildImportPlan, loadStagedPackage, validateMflashPackage, ImportPlan, MflashPackage } from './completoMflash';
+import { buildImportPlan, loadStagedPackage, ImportPlan, MflashPackage } from './completoMflash';
+import { validateAnyMflashPackage } from './validateAnyMflash';
 
 const BATCH_SIZE = 200;
 const LOCK_ID = 'completo-mflash';
@@ -48,7 +49,7 @@ function buildWrites(pkg: MflashPackage): WriteOp[] {
   for (const level of pkg.levels) {
     for (const subject of level.subjects) {
       const levels = subjectLevels.get(subject.name) || [];
-      if (!levels.some(x => x.level === level.id)) levels.push({ level: level.id, label: level.id.toUpperCase(), icon: 'book', reason: 'Importado do pacote editorial completo.mflash', priority: 5 });
+      if (!levels.some(x => x.level === level.id)) levels.push({ level: level.id, label: level.id.toUpperCase(), icon: 'book', reason: `Importado do pacote ${pkg.manifest.package}.mflash`, priority: 5 });
       subjectLevels.set(subject.name, levels);
       for (const curriculum of subject.curricula) {
         const categories = curriculum.topics.map(t => ({ category: t.name, topics: t.subtopics.map(s => s.name) }));
@@ -106,7 +107,7 @@ export async function publishStagedImportProduction(jobId: string): Promise<Impo
   try {
     const { job, rawText } = await loadStagedPackage(jobId);
     if (job.status === 'completed' && job.plan) return job.plan as ImportPlan;
-    const parsed = JSON.parse(rawText); const validated = validateMflashPackage(parsed); if (!validated.package) throw new Error('Staging inválido.');
+    const parsed = JSON.parse(rawText); const validated = validateAnyMflashPackage(parsed); if (!validated.package) throw new Error('Staging inválido.');
     const plan = await buildImportPlan(validated.package, String(job.packageHash)); plan.jobId = jobId;
     const errors = [...validated.issues, ...plan.issues].filter(x => x.severity === 'error');
     if (errors.length) throw new Error(`Publicação bloqueada: ${errors.map(x => x.message).join(' | ')}`);
@@ -141,7 +142,7 @@ export async function rollbackImportJob(jobId: string): Promise<void> {
     for (let i = 0; i < backups.docs.length; i += BATCH_SIZE) {
       const batch = db.batch();
       for (const doc of backups.docs.slice(i, i + BATCH_SIZE)) {
-        const b = doc.data() as BackupDoc; const ref = db.collection(b.collection).doc(b.id);
+        const b = doc.data() as BackupDoc; const ref = db.collection(b.collection).doc(b.documentId);
         if (b.existed) batch.set(ref, b.data || {}, { merge: false }); else batch.delete(ref);
       }
       await batch.commit();
