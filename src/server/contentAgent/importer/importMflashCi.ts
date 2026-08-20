@@ -4,6 +4,7 @@ import path from 'path';
 import { stageImport, publishStagedImport } from './completoMflash';
 import { normalizeMflashForImport } from './normalizeMflashForImport';
 import { normalizeRootCardsIntoHierarchy } from './normalizeRootCards';
+import { parseMflash } from './parseMflashXml';
 
 const DEFAULT_PACKAGE_DIR = path.resolve(process.env.CONTENT_PACKAGES_DIR || path.join(process.cwd(), 'content-packages'));
 
@@ -31,24 +32,24 @@ async function main() {
 
   const raw = await fs.readFile(file, 'utf8');
   console.log(`=== MEMORIAFLASH — ALIMENTADOR CI ===\nPasta padrão: ${DEFAULT_PACKAGE_DIR}\nArquivo selecionado: ${path.basename(file)}`);
-  console.log('[0/3] Normalizando formato .mflash...');
+  console.log('[0/3] Detectando e normalizando formato .mflash...');
 
   let normalizedRaw: string;
   try {
-    const parsed = JSON.parse(raw);
-    const normalized = normalizeMflashForImport(parsed);
-    const rootCardCheck = normalizeRootCardsIntoHierarchy(normalized, parsed);
+    const parsedInput = parseMflash(raw);
+    const normalized = normalizeMflashForImport(parsedInput.package);
+    const rootCardCheck = normalizeRootCardsIntoHierarchy(normalized, parsedInput.package);
     if (rootCardCheck.consistencyError) throw new Error(rootCardCheck.consistencyError);
     if (rootCardCheck.rootCards > 0) console.log(`Cards na raiz: ${rootCardCheck.rootCards} | injetados na hierarquia: ${rootCardCheck.injectedCards} | não associados: ${rootCardCheck.unresolvedCards}`);
     normalizedRaw = JSON.stringify(rootCardCheck.package);
-    console.log(`Formato normalizado: ${normalized.manifest.package} | níveis: ${normalized.manifest.levels.join(', ')}`);
+    console.log(`Formato detectado: ${parsedInput.format.toUpperCase()} | normalizado: ${normalized.manifest.package} | níveis: ${normalized.manifest.levels.join(', ')}`);
   } catch (error) {
     throw new Error(`Falha ao normalizar o .mflash: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   console.log('[1/3] Validando e colocando em staging...');
   const staged = await stageImport(normalizedRaw);
-  console.table({ tipo: staged.plan.manifest.package, niveis: staged.plan.stats.levels, materias: staged.plan.stats.subjects, grades: staged.plan.stats.curricula, topicos: staged.plan.stats.topics, subtopicos: staged.plan.stats.subtopics, cards: staged.plan.stats.cards, novos: staged.plan.stats.newCards, existentes: staged.plan.stats.existingCards, atualizacoes: staged.plan.stats.updatedCards, conflitos: staged.plan.stats.conflicts, usoAtualPercentual: staged.storage.currentPercent, usoDepoisPercentual: staged.storage.afterPercent, jobId: staged.jobId });
+  console.table({ tipo: staged.plan.manifest.package, formatoEntrada: 'normalizado', niveis: staged.plan.stats.levels, materias: staged.plan.stats.subjects, grades: staged.plan.stats.curricula, topicos: staged.plan.stats.topics, subtopicos: staged.plan.stats.subtopics, cards: staged.plan.stats.cards, novos: staged.plan.stats.newCards, existentes: staged.plan.stats.existingCards, atualizacoes: staged.plan.stats.updatedCards, conflitos: staged.plan.stats.conflicts, usoAtualPercentual: staged.storage.currentPercent, usoDepoisPercentual: staged.storage.afterPercent, jobId: staged.jobId });
   const errors = staged.plan.issues.filter(issue => issue.severity === 'error');
   if (errors.length) { errors.forEach(issue => console.error(`- ${issue.code}: ${issue.message}`)); throw new Error(`Importação bloqueada por ${errors.length} erro(s). Job de staging: ${staged.jobId}`); }
 
