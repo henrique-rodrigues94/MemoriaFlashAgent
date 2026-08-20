@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import { getAdminFirestore } from '../../firebaseAdmin';
 import { EducationLevel, BankCard, CardContentType, contentHash, curriculumId, bucketId, normalizeText, shortHash, makeTtl, TTL_DAYS } from '../../db/firestoreSchema';
+import { parseMflash } from './parseMflashXml';
 
 export const OFFICIAL_LEVELS: readonly EducationLevel[] = ['fundamental', 'medio', 'faculdade', 'concurso', 'tecnico'] as const;
 export const MFLASH_FORMAT = 'memoriaflash';
@@ -37,7 +38,7 @@ function path(...parts: string[]): string { return parts.join('.'); }
 export function validateMflashPackage(pkg: unknown): { package?: MflashPackage; issues: ValidationIssue[] } {
   const issues: ValidationIssue[] = [];
   const root = pkg as any;
-  if (!root || typeof root !== 'object') return { issues: [{ severity: 'error', code: 'ROOT_INVALID', path: '$', message: 'O arquivo precisa conter um objeto JSON.' }] };
+  if (!root || typeof root !== 'object') return { issues: [{ severity: 'error', code: 'ROOT_INVALID', path: '$', message: 'O arquivo precisa conter um objeto de pacote.' }] };
   const manifest = root.manifest;
   if (!manifest || manifest.format !== MFLASH_FORMAT) issues.push({ severity: 'error', code: 'FORMAT_INVALID', path: 'manifest.format', message: `Formato inválido. Esperado ${MFLASH_FORMAT}.` });
   if (manifest?.formatVersion !== MFLASH_VERSION) issues.push({ severity: 'error', code: 'FORMAT_VERSION_INVALID', path: 'manifest.formatVersion', message: `Versão de formato incompatível. Esperado ${MFLASH_VERSION}.` });
@@ -58,7 +59,6 @@ export function validateMflashPackage(pkg: unknown): { package?: MflashPackage; 
     const declared = Array.isArray(manifest?.levels) ? manifest.levels.filter((x: unknown) => OFFICIAL_LEVELS.includes(x as EducationLevel)) : [];
     if (declared.length !== 1 || !found.has(declared[0])) issues.push({ severity: 'error', code: 'LEVEL_PACKAGE_DECLARATION_INVALID', path: 'manifest.levels', message: 'O manifesto do pacote por nível deve declarar exatamente o nível presente no arquivo.' });
   }
-
   const seenIds = new Set<string>();
   const seenHashes = new Set<string>();
   let totalCards = 0;
@@ -191,9 +191,9 @@ async function writeInBatches(items: Array<{ ref: FirebaseFirestore.DocumentRefe
 }
 
 export async function stageImport(rawText: string): Promise<{ jobId: string; plan: ImportPlan; storage: Awaited<ReturnType<typeof estimateStorageAfterImport>> }> {
-  const parsed = JSON.parse(rawText);
-  const validated = validateMflashPackage(parsed);
-  if (!validated.package) throw new Error(`Arquivo inválido: ${validated.issues.filter(i => i.severity === 'error').map(i => i.message).join(' | ')}`);
+  const parsed = parseMflash(rawText);
+  const validated = validateMflashPackage(parsed.package);
+  if (!validated.package) throw new Error(`Arquivo .mflash inválido (${parsed.format}): ${validated.issues.filter(i => i.severity === 'error').map(i => i.message).join(' | ')}`);
   const packageHash = hashPackage(rawText);
   const plan = await buildImportPlan(validated.package, packageHash);
   plan.issues.push(...validated.issues);
@@ -204,7 +204,7 @@ export async function stageImport(rawText: string): Promise<{ jobId: string; pla
   const jobRef = db.collection('contentImportJobs').doc(shortHash(`${packageHash}|${Date.now()}`));
   const jobId = jobRef.id;
   const chunkCount = Math.ceil(Buffer.byteLength(rawText, 'utf8') / STAGING_CHUNK_BYTES);
-  await jobRef.set({ jobId, status: 'staged', package: parsed?.manifest?.package || 'completo', packageHash, manifest: plan.manifest, stats: plan.stats, issues: plan.issues, storage, chunkCount, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+  await jobRef.set({ jobId, status: 'staged', inputFormat: parsed.format, package: validated.package.manifest.package, packageHash, manifest: plan.manifest, stats: plan.stats, issues: plan.issues, storage, chunkCount, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   for (let i = 0; i < chunkCount; i++) {
     const chunk = Buffer.from(rawText, 'utf8').subarray(i * STAGING_CHUNK_BYTES, (i + 1) * STAGING_CHUNK_BYTES).toString('utf8');
     await jobRef.collection('chunks').doc(String(i).padStart(6, '0')).set({ index: i, data: chunk });
@@ -223,7 +223,7 @@ export async function publishStagedImport(jobId: string): Promise<ImportPlan> {
   const db = getAdminFirestore(); if (!db) throw new Error('Firebase Admin não configurado.');
   const { job, rawText } = await loadStagedPackage(jobId);
   if (job.status === 'completed') return job.plan as ImportPlan;
-  const parsed = JSON.parse(rawText); const validated = validateMflashPackage(parsed); if (!validated.package) throw new Error('Staging inválido.');
+  const parsed = parseMflash(rawText); const validated = validateMflashPackage(parsed.package); if (!validated.package) throw new Error('Staging inválido.');
   const plan = await buildImportPlan(validated.package, String(job.packageHash));
   plan.jobId = jobId;
   if (plan.issues.some(i => i.severity === 'error') || validated.issues.some(i => i.severity === 'error')) throw new Error(`Publicação bloqueada: ${[...plan.issues, ...validated.issues].filter(i => i.severity === 'error').map(i => i.message).join(' | ')}`);
