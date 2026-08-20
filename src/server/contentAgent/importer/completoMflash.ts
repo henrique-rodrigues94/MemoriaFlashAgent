@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import { getAdminFirestore } from '../../firebaseAdmin';
 import { EducationLevel, BankCard, CardContentType, contentHash, curriculumId, bucketId, normalizeText, shortHash, makeTtl, TTL_DAYS } from '../../db/firestoreSchema';
+import { parseMflash } from './parseMflashXml';
 
 export const OFFICIAL_LEVELS: readonly EducationLevel[] = ['fundamental', 'medio', 'faculdade', 'concurso', 'tecnico'] as const;
 export const MFLASH_FORMAT = 'memoriaflash';
@@ -37,7 +38,7 @@ function path(...parts: string[]): string { return parts.join('.'); }
 export function validateMflashPackage(pkg: unknown): { package?: MflashPackage; issues: ValidationIssue[] } {
   const issues: ValidationIssue[] = [];
   const root = pkg as any;
-  if (!root || typeof root !== 'object') return { issues: [{ severity: 'error', code: 'ROOT_INVALID', path: '$', message: 'O arquivo precisa conter um objeto JSON.' }] };
+  if (!root || typeof root !== 'object') return { issues: [{ severity: 'error', code: 'ROOT_INVALID', path: '$', message: 'O arquivo precisa conter um objeto de pacote.' }] };
   const manifest = root.manifest;
   if (!manifest || manifest.format !== MFLASH_FORMAT) issues.push({ severity: 'error', code: 'FORMAT_INVALID', path: 'manifest.format', message: `Formato inválido. Esperado ${MFLASH_FORMAT}.` });
   if (manifest?.formatVersion !== MFLASH_VERSION) issues.push({ severity: 'error', code: 'FORMAT_VERSION_INVALID', path: 'manifest.formatVersion', message: `Versão de formato incompatível. Esperado ${MFLASH_VERSION}.` });
@@ -191,9 +192,9 @@ async function writeInBatches(items: Array<{ ref: FirebaseFirestore.DocumentRefe
 }
 
 export async function stageImport(rawText: string): Promise<{ jobId: string; plan: ImportPlan; storage: Awaited<ReturnType<typeof estimateStorageAfterImport>> }> {
-  const parsed = JSON.parse(rawText);
-  const validated = validateMflashPackage(parsed);
-  if (!validated.package) throw new Error(`Arquivo inválido: ${validated.issues.filter(i => i.severity === 'error').map(i => i.message).join(' | ')}`);
+  const parsed = parseMflash(rawText);
+  const validated = validateMflashPackage(parsed.package);
+  if (!validated.package) throw new Error(`Arquivo .mflash inválido (${parsed.format}): ${validated.issues.filter(i => i.severity === 'error').map(i => i.message).join(' | ')}`);
   const packageHash = hashPackage(rawText);
   const plan = await buildImportPlan(validated.package, packageHash);
   plan.issues.push(...validated.issues);
@@ -204,7 +205,7 @@ export async function stageImport(rawText: string): Promise<{ jobId: string; pla
   const jobRef = db.collection('contentImportJobs').doc(shortHash(`${packageHash}|${Date.now()}`));
   const jobId = jobRef.id;
   const chunkCount = Math.ceil(Buffer.byteLength(rawText, 'utf8') / STAGING_CHUNK_BYTES);
-  await jobRef.set({ jobId, status: 'staged', package: parsed?.manifest?.package || 'completo', packageHash, manifest: plan.manifest, stats: plan.stats, issues: plan.issues, storage, chunkCount, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+  await jobRef.set({ jobId, status: 'staged', inputFormat: parsed.format, package: parsed.package.manifest.package, packageHash, manifest: plan.manifest, stats: plan.stats, issues: plan.issues, storage, chunkCount, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   for (let i = 0; i < chunkCount; i++) {
     const chunk = Buffer.from(rawText, 'utf8').subarray(i * STAGING_CHUNK_BYTES, (i + 1) * STAGING_CHUNK_BYTES).toString('utf8');
     await jobRef.collection('chunks').doc(String(i).padStart(6, '0')).set({ index: i, data: chunk });
@@ -217,57 +218,4 @@ export async function loadStagedPackage(jobId: string): Promise<{ job: any; rawT
   const ref = db.collection('contentImportJobs').doc(jobId); const snap = await ref.get(); if (!snap.exists) throw new Error('Importação não encontrada.');
   const chunks = await ref.collection('chunks').orderBy('index').get();
   return { job: snap.data(), rawText: chunks.docs.map(d => String(d.data().data || '')).join('') };
-}
-
-export async function publishStagedImport(jobId: string): Promise<ImportPlan> {
-  const db = getAdminFirestore(); if (!db) throw new Error('Firebase Admin não configurado.');
-  const { job, rawText } = await loadStagedPackage(jobId);
-  if (job.status === 'completed') return job.plan as ImportPlan;
-  const parsed = JSON.parse(rawText); const validated = validateMflashPackage(parsed); if (!validated.package) throw new Error('Staging inválido.');
-  const plan = await buildImportPlan(validated.package, String(job.packageHash));
-  plan.jobId = jobId;
-  if (plan.issues.some(i => i.severity === 'error') || validated.issues.some(i => i.severity === 'error')) throw new Error(`Publicação bloqueada: ${[...plan.issues, ...validated.issues].filter(i => i.severity === 'error').map(i => i.message).join(' | ')}`);
-  await db.collection('contentImportJobs').doc(jobId).set({ status: 'importing', updatedAt: new Date().toISOString(), startedAt: new Date().toISOString() }, { merge: true });
-  const writeItems: Array<{ ref: FirebaseFirestore.DocumentReference; data: any; merge?: boolean }> = [];
-  const subjectLevels = new Map<string, Array<{ level: EducationLevel; label: string; icon: string; reason: string; priority: number }>>();
-  for (const level of validated.package.levels) {
-    for (const subject of level.subjects) {
-      const arr = subjectLevels.get(subject.name) || [];
-      if (!arr.some(x => x.level === level.id)) arr.push({ level: level.id, label: levelLabel(level.id), icon: 'book', reason: 'Importado do pacote editorial .mflash', priority: 5 });
-      subjectLevels.set(subject.name, arr);
-      for (const curriculum of subject.curricula) {
-        const categories = curriculum.topics.map(t => ({ category: t.name, topics: t.subtopics.map(s => s.name) }));
-        const topicTree = curriculum.topics.map(t => ({ topic: t.name, subtopics: t.subtopics.map(s => s.name) }));
-        const currRef = db.collection('curricula').doc(curriculumId(subject.name, level.id));
-        writeItems.push({ ref: currRef, merge: true, data: { subject: subject.name, level: level.id, categories, topicTree, topicCount: curriculum.topics.length, subtopicCount: curriculum.topics.reduce((n, t) => n + t.subtopics.length, 0), totalTopics: curriculum.topics.length, totalSubtopics: curriculum.topics.reduce((n, t) => n + t.subtopics.length, 0), contentVersion: validated.package.manifest.contentVersion, version: Number(job?.manifest?.contentVersion === validated.package.manifest.contentVersion ? (job?.stats?.curriculaVersion || 1) : 1), updatedAt: new Date().toISOString(), ttlAt: makeTtl(TTL_DAYS.CURRICULUM), providerUsed: 'mflash-import' } });
-        for (const topic of curriculum.topics) for (const subtopic of topic.subtopics) {
-          const cards = subtopic.cards.map(raw => makeCard(raw, subject.name, topic.name, subtopic.name, level.id, validated.package!.manifest));
-          const bucketRef = db.collection('cardBuckets').doc(bucketId(subject.name, topic.name, level.id, 'definition' as CardContentType, subtopic.name));
-          const oldSnap = await bucketRef.get(); const old = oldSnap.exists ? oldSnap.data() as any : undefined;
-          const oldCards = Array.isArray(old?.cards) ? old.cards as BankCard[] : [];
-          const map = new Map<string, BankCard>(); for (const c of oldCards) map.set(c.contentHash || contentHash(c.front, c.back, `${subject.name}|${topic.name}|${c.subtopic || subtopic.name}`), c);
-          for (const c of cards) { const existing = map.get(c.contentHash!); if (existing) { if (existing.id && existing.front === c.front && existing.back === c.back && existing.explanation === c.explanation) continue; map.set(c.contentHash!, { ...c, id: existing.id, version: Number(existing.version || 1) + 1 } as BankCard); } else map.set(c.contentHash!, { ...c, id: shortHash(c.contentHash!) } as BankCard); }
-          const all = [...map.values()];
-          const projected = bytes({ cards: all, subject: subject.name, topic: topic.name, subtopic: subtopic.name });
-          if (projected > FIRESTORE_DOC_SAFE_BYTES) throw new Error(`Bucket excede o tamanho seguro do Firestore: ${subject.name}/${level.id}/${topic.name}/${subtopic.name}. Reduza a quantidade por subtópico.`);
-          writeItems.push({ ref: bucketRef, merge: true, data: { subject: subject.name, topic: topic.name, subtopic: subtopic.name, level: level.id, cardType: 'definition', cards: all, cardCount: all.length, version: Number(old?.version || 0) + 1, qualityScore: all.length ? Math.round(all.reduce((n, c) => n + Number(c.qualityScore || 0), 0) / all.length) : 0, updatedAt: new Date().toISOString(), ttlAt: makeTtl(TTL_DAYS.CARD_BUCKET), providerUsed: 'mflash-import' } });
-        }
-      }
-    }
-  }
-  for (const [subject, levels] of subjectLevels) {
-    const ref = db.collection('subjects').doc(shortHash(normalizeText(subject)));
-    writeItems.push({ ref, merge: true, data: { subject, normalized: normalizeText(subject), levels, updatedAt: new Date().toISOString(), ttlAt: makeTtl(TTL_DAYS.SUBJECT_LEVELS), providerUsed: 'mflash-import', version: 1 } });
-    writeItems.push({ ref: db.collection('contentIndex').doc(normalizeText(subject).replace(/\s+/g, '-')), merge: true, data: { subjectId: shortHash(normalizeText(subject)), subject, normalized: normalizeText(subject), aliases: [normalizeText(subject)], status: 'ready', version: 1, updatedAt: new Date().toISOString() } });
-  }
-  await writeInBatches(writeItems);
-  await db.collection('contentImportJobs').doc(jobId).set({ status: 'completed', plan: { ...plan, jobId }, completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, { merge: true });
-  return { ...plan, jobId };
-}
-
-export async function cancelStagedImport(jobId: string): Promise<void> {
-  const db = getAdminFirestore(); if (!db) throw new Error('Firebase Admin não configurado.');
-  const ref = db.collection('contentImportJobs').doc(jobId); const snap = await ref.get(); if (!snap.exists) throw new Error('Importação não encontrada.');
-  if (snap.data()?.status === 'completed') throw new Error('Não é possível cancelar uma importação concluída.');
-  await ref.set({ status: 'cancelled', cancelledAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, { merge: true });
 }
