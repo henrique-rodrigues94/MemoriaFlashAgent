@@ -4,8 +4,9 @@ import path from 'path';
 import readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
 import { stageImport, publishStagedImport } from './completoMflash';
+import { parseMflash } from './parseMflashXml';
 
-type Candidate = { file: string; type: 'completo' | 'nivel'; levels: string[]; subject?: string };
+type Candidate = { file: string; type: 'completo' | 'nivel'; levels: string[]; subject?: string; format: 'xml' | 'json' | 'invalid' };
 type PackageMode = 'completo' | 'nivel';
 
 function question(rl: readline.Interface, text: string): Promise<string> { return rl.question(text); }
@@ -17,12 +18,10 @@ async function discover(directory: string): Promise<Candidate[]> {
     if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.mflash')) continue;
     const file = path.join(directory, entry.name);
     try {
-      const parsed = JSON.parse(await fs.readFile(file, 'utf8')) as any;
-      const type = parsed?.manifest?.package;
-      if (type !== 'completo' && type !== 'nivel') continue;
-      candidates.push({ file, type, levels: Array.isArray(parsed?.manifest?.levels) ? parsed.manifest.levels : [], subject: parsed?.manifest?.subject });
+      const parsed = parseMflash(await fs.readFile(file, 'utf8'));
+      candidates.push({ file, type: parsed.package.manifest.package as 'completo' | 'nivel', levels: parsed.package.manifest.levels, subject: parsed.package.levels[0]?.subjects[0]?.name, format: parsed.format });
     } catch {
-      candidates.push({ file, type: 'nivel', levels: [], subject: undefined });
+      candidates.push({ file, type: 'nivel', levels: [], subject: undefined, format: 'invalid' });
     }
   }
   return candidates.sort((a, b) => a.file.localeCompare(b.file));
@@ -39,12 +38,10 @@ async function chooseMode(rl: readline.Interface): Promise<PackageMode> {
 }
 
 async function chooseCandidate(rl: readline.Interface, candidates: Candidate[], mode: PackageMode): Promise<Candidate> {
-  const filtered = candidates.filter(candidate => candidate.type === mode);
-  if (filtered.length === 0) {
-    throw new Error(`Nenhum arquivo .mflash do tipo "${mode}" foi encontrado no diretório informado.`);
-  }
+  const filtered = candidates.filter(candidate => candidate.type === mode && candidate.format !== 'invalid');
+  if (filtered.length === 0) throw new Error(`Nenhum arquivo .mflash válido do tipo "${mode}" foi encontrado no diretório informado.`);
   console.log(`\nArquivos ${mode === 'nivel' ? 'POR NÍVEL' : 'COMPLETOS'} encontrados:`);
-  filtered.forEach((candidate, index) => console.log(`  [${index + 1}] ${path.basename(candidate.file)} — ${candidate.type === 'nivel' ? `NÍVEL: ${candidate.levels.join(', ')}` : 'FUNDAMENTAL + MÉDIO + FACULDADE + CONCURSO + TÉCNICO'}`));
+  filtered.forEach((candidate, index) => console.log(`  [${index + 1}] ${path.basename(candidate.file)} — ${candidate.format.toUpperCase()} — ${candidate.type === 'nivel' ? `NÍVEL: ${candidate.levels.join(', ')}` : 'FUNDAMENTAL + MÉDIO + FACULDADE + CONCURSO + TÉCNICO'}`));
   const answer = await question(rl, '\nSelecione o arquivo pelo número: ');
   const index = Number(answer) - 1;
   if (!Number.isInteger(index) || !filtered[index]) throw new Error('Seleção inválida.');
@@ -55,7 +52,7 @@ async function main() {
   const rl = readline.createInterface({ input, output });
   try {
     console.log('=== MEMORIAFLASH — ALIMENTADOR DE CONTEÚDO ===');
-    console.log('Importação segura: validação → análise → staging → confirmação → Firebase.');
+    console.log('Importação segura: detecção de formato → validação → análise → staging → confirmação → Firebase.');
 
     const suppliedDirectory = process.argv[2]?.trim();
     const directoryInput = suppliedDirectory || await question(rl, '\nInforme o diretório onde estão os arquivos .mflash: ');
@@ -67,6 +64,7 @@ async function main() {
     const mode = await chooseMode(rl);
     const candidate = await chooseCandidate(rl, candidates, mode);
     console.log(`\nArquivo selecionado: ${candidate.file}`);
+    console.log(`Formato detectado: ${candidate.format.toUpperCase()}`);
 
     const raw = await fs.readFile(candidate.file, 'utf8');
     console.log('\n[1/3] Validando e preparando staging...');
@@ -75,6 +73,7 @@ async function main() {
     console.log('\n[2/3] Resultado da análise:');
     console.table({
       tipo: candidate.type,
+      formato: candidate.format,
       niveis: staged.plan.stats.levels,
       materias: staged.plan.stats.subjects,
       grades: staged.plan.stats.curricula,
