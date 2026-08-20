@@ -10,10 +10,34 @@ export async function cleanupCardsJob(tracker:RunTracker):Promise<void>{
   if(!agentConfig.cleanup.enabled){tracker.log({action:'[cleanup] modo desabilitado por configuração'});return;}
   const db=getAdminFirestore();if(!db)return;
   const cutoff=Date.now()-agentConfig.cleanup.staleDays*86400000;
-  const snap=await db.collection('cardBuckets').limit(100).get();let removed=0;
+
+  // CORREÇÃO: antes a query era `cardBuckets.limit(100)` sem orderBy nem
+  // cursor — isso sempre retornava os MESMOS ~100 primeiros documentos (na
+  // ordenação padrão por ID do Firestore), toda vez que o job rodava. Se o
+  // banco tiver mais de 100 buckets, os demais NUNCA eram avaliados para
+  // limpeza, em nenhuma execução. Agora ordenamos por `updatedAt` (mais
+  // antigos primeiro — os candidatos mais prováveis a limpeza) e guardamos
+  // um cursor em `agentState/cleanupCursor` para continuar de onde parou na
+  // próxima execução, dando a volta ao chegar no fim da coleção.
+  const cursorRef=db.collection('agentState').doc('cleanupCursor');
+  const cursorSnap=await cursorRef.get();
+  const cursorValue=cursorSnap.exists?cursorSnap.data()?.lastUpdatedAt:undefined;
+
+  let query=db.collection('cardBuckets').orderBy('updatedAt').limit(100);
+  if(typeof cursorValue==='string')query=query.startAfter(cursorValue);
+  let snap=await query.get();
+  if(snap.empty&&typeof cursorValue==='string'){
+    // Chegou ao fim da coleção — reinicia do começo na próxima passada.
+    tracker.log({action:'[cleanup] fim da coleção alcançado, reiniciando do início na próxima execução'});
+    snap=await db.collection('cardBuckets').orderBy('updatedAt').limit(100).get();
+  }
+  let removed=0;
+  let lastSeenUpdatedAt:string|undefined;
   for(const docRef of snap.docs){
     if(removed>=agentConfig.limits.maxCleanupCardsPerRun||tracker.elapsedMinutes()>=agentConfig.limits.maxRuntimeMinutes)break;
-    const bucket=docRef.data() as CardBucketDoc;const updated=Date.parse(String(bucket.updatedAt||''));if(Number.isFinite(updated)&&updated>cutoff)continue;
+    const bucket=docRef.data() as CardBucketDoc;const updated=Date.parse(String(bucket.updatedAt||''));
+    lastSeenUpdatedAt=String(bucket.updatedAt||lastSeenUpdatedAt||'');
+    if(Number.isFinite(updated)&&updated>cutoff)continue;
     const cards=Array.isArray(bucket.cards)?bucket.cards:[];if(cards.length<=agentConfig.cleanup.minimumKeepPerBucket)continue;
     const ranked: {card:BankCard;score:number}[]=[];
     for(const card of cards){
@@ -25,5 +49,6 @@ export async function cleanupCardsJob(tracker:RunTracker):Promise<void>{
     if(!agentConfig.cleanup.apply){tracker.log({action:'[cleanup] dry-run',subject:bucket.subject,topic:bucket.topic,detail:`${candidates.length} candidato(s), bucket=${docRef.id}, preservados=${keep.length}`});continue;}
     const removeIds=new Set(candidates.map(x=>x.card.id));const remaining=cards.filter(c=>!removeIds.has(c.id));await docRef.ref.set({...bucket,cards:remaining,cardCount:remaining.length,updatedAt:new Date().toISOString()});await db.collection('cardCleanupHistory').doc(`${docRef.id}_${Date.now()}`).set({bucketId:docRef.id,subject:bucket.subject,topic:bucket.topic,removedCards:candidates.map(x=>x.card),preservedCards:keep,reason:'low relevance/usage on stale bucket',removedAt:new Date().toISOString()});removed+=candidates.length;tracker.cardsReviewed+=candidates.length;tracker.log({action:'[cleanup] cards removidos',subject:bucket.subject,topic:bucket.topic,detail:`-${candidates.length}, preservados=${keep.length}, bucket=${docRef.id}`});
   }
+  if(lastSeenUpdatedAt)await cursorRef.set({lastUpdatedAt:lastSeenUpdatedAt,updatedAt:new Date().toISOString()});
   if(!agentConfig.cleanup.apply)tracker.log({action:'[cleanup] concluído em dry-run',detail:'Nenhum card foi apagado. Defina CONTENT_AGENT_CLEANUP_APPLY=true após validar os candidatos.'});
 }

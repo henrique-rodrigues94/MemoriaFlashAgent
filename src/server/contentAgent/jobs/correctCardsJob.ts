@@ -1,5 +1,5 @@
 import { generateFlashcardsTask } from '../../ai/tasks/generateFlashcards';
-import { queryNegativeFeedbackForCorrection, markFeedbackProcessed, CorrectionFeedbackDoc } from '../feedback/feedbackRepository';
+import { queryNegativeFeedbackForCorrection, markFeedbackProcessed, markFeedbackFailed, incrementCorrectionAttempts, CorrectionFeedbackDoc } from '../feedback/feedbackRepository';
 import { aggregateFeedbackByCard } from '../feedback/feedbackAnalyzer';
 import { loadBucketById, replaceCardByBucketId } from '../cards/cardBucketRepository';
 import { agentConfig } from '../config/agentConfig';
@@ -7,6 +7,21 @@ import { RunTracker } from '../monitoring/runLogger';
 import type { CardFeedbackDoc, EducationLevel, BankCard } from '../../db/firestoreSchema';
 
 const ERROR_REASONS = new Set(['wrong_answer', 'bad_explanation', 'confusing_question', 'outdated_content', 'other']);
+// Após esgotar as tentativas, o feedback é marcado como "failed" em vez de
+// ficar "pending" para sempre — sem isso, um único card impossível de
+// corrigir (bucket apagado, IA sempre recusando, etc.) fica preso no topo
+// da fila (ordenada por taxa de negativos) e bloqueia a correção de todos
+// os outros cards em toda execução futura.
+const MAX_CORRECTION_ATTEMPTS = 3;
+
+/** Registra uma falha de correção: se ainda houver tentativas disponíveis,
+ * mantém o feedback como `pending` para tentar de novo numa próxima
+ * execução; ao esgotar, marca como `failed` para liberar a fila. */
+async function handleCorrectionFailure(matching: CorrectionFeedbackDoc[], reason: string): Promise<void> {
+  const ids = matching.map(f => f.feedbackId);
+  const attempts = await incrementCorrectionAttempts(ids);
+  if (attempts >= MAX_CORRECTION_ATTEMPTS) await markFeedbackFailed(ids, reason);
+}
 
 function correctionPrompt(card: BankCard, feedback: CardFeedbackDoc[]): string {
   const evidence = feedback.slice(0, 8).map(f => `- motivo=${f.reason || 'other'} comentário=${f.comment || 'sem comentário'}`).join('\n');
@@ -31,6 +46,9 @@ export async function correctCardsJob(tracker: RunTracker): Promise<void> {
       const card = bucket?.cards.find(c => c.id === aggregate.cardId);
       if (!card) {
         tracker.log({ action: '[correction] card não encontrado', subject: first.subject, topic: first.topic, detail: `bucket=${first.bucketId} card=${aggregate.cardId}` });
+        // Card/bucket não existe mais — é permanente, não vale a pena
+        // gastar mais tentativas tentando corrigir algo que sumiu.
+        await markFeedbackFailed(matching.map(f => f.feedbackId), 'card não encontrado no bucket');
         continue;
       }
 
@@ -48,6 +66,7 @@ export async function correctCardsJob(tracker: RunTracker): Promise<void> {
       const replacement = result.cards?.find((c: any) => c?.front && c?.back);
       if (!replacement) {
         tracker.errors++;
+        await handleCorrectionFailure(matching, 'IA não retornou substituto válido');
         continue;
       }
 
@@ -78,10 +97,12 @@ export async function correctCardsJob(tracker: RunTracker): Promise<void> {
         tracker.log({ action: '[correction] card corrigido e substituído', subject: first.subject, topic: first.topic, detail: `card=${aggregate.cardId}, feedback=${matching.length}, provedor=${result.providerUsed}` });
       } else {
         tracker.errors++;
+        await handleCorrectionFailure(matching, 'falha ao substituir o card no bucket');
       }
     } catch (err: any) {
       tracker.errors++;
       tracker.log({ action: '[correction] falha ao corrigir card', subject: first.subject, topic: first.topic, detail: err?.message || String(err) });
+      await handleCorrectionFailure(matching, err?.message || String(err));
     }
   }
 }

@@ -11,8 +11,16 @@ import type { ContentRequestDoc, EducationLevel } from '../../db/firestoreSchema
 
 export async function updateRequestedContentJob(tracker:RunTracker):Promise<void>{
   const db=getAdminFirestore();if(!db)return;
-  const snap=await db.collection('contentRequests').where('status','==','pending').limit(agentConfig.limits.maxContentRequestsPerRun).get();
-  const requests=[...snap.docs].sort((a,b)=>String(a.data().requestedAt||a.data().createdAt||'').localeCompare(String(b.data().requestedAt||b.data().createdAt||'')));
+  // CORREÇÃO: antes buscávamos `limit(N)` sem `orderBy` (ordem arbitrária do
+  // Firestore para uma query só com `where`) e só depois ordenávamos esses N
+  // já limitados por data no cliente — se houvesse mais pedidos pendentes do
+  // que N, pedidos genuinamente mais antigos podiam ficar de fora do corte
+  // enquanto pedidos mais recentes entravam. Agora ordenamos no próprio
+  // Firestore por prioridade (maior primeiro) e depois por `updatedAt`
+  // (mais antigo primeiro), usando o índice composto já existente em
+  // `firestore.indexes.json` — garante FIFO real dentro de cada prioridade.
+  const snap=await db.collection('contentRequests').where('status','==','pending').orderBy('priority','desc').orderBy('updatedAt','asc').limit(agentConfig.limits.maxContentRequestsPerRun).get();
+  const requests=[...snap.docs];
   for(const ref of requests){
     if(tracker.elapsedMinutes()>=agentConfig.limits.maxRuntimeMinutes||tracker.aiCalls>=agentConfig.limits.maxAiCallsPerRun)break;
     const data=ref.data() as ContentRequestDoc;const subject=String(data.subject||data.requestedSubject||'').trim();if(!subject){await ref.ref.set({status:'failed',stage:'failed',updatedAt:new Date().toISOString(),error:'subject vazio'},{merge:true});continue;}
